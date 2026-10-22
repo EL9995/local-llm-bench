@@ -1,0 +1,58 @@
+{
+  "name": "orchestrator",
+  "kind": "orchestrator",
+  "description": "Tasks that split into parts with known answers, so code can score the split, each worker, and the merge. Each part has a key (a regex) that finds its subtask and its place in an answer. The last case can't be split: each step needs the one before.",
+  "cases": [
+    {"id": "r-counts", "prompt": "How many times does the letter r appear in each of these words: strawberry, berry, mirror, carrot? Give one line per word.",
+     "parts": [
+       {"name": "strawberry", "key": "\\bstrawberry\\b", "q": "How many times does the letter r appear in strawberry?", "expect": {"number": 3}},
+       {"name": "berry", "key": "\\bberry\\b", "q": "How many times does the letter r appear in berry?", "expect": {"number": 2}},
+       {"name": "mirror", "key": "\\bmirror\\b", "q": "How many times does the letter r appear in mirror?", "expect": {"number": 3}},
+       {"name": "carrot", "key": "\\bcarrot\\b", "q": "How many times does the letter r appear in carrot?", "expect": {"number": 2}}]},
+
+    {"id": "arith-sum", "prompt": "Work out 17 times 23, 144 divided by 12, and 15% of 80. Give each result, then the total of the three results.",
+     "parts": [
+       {"name": "17 times 23", "key": "17\\D{1,15}23", "q": "What is 17 times 23?", "expect": {"number": 391}},
+       {"name": "144 divided by 12", "key": "144\\D{1,15}12", "q": "What is 144 divided by 12?", "expect": {"number": 12}},
+       {"name": "15% of 80", "key": "15\\s*(?:%|percent)\\D{0,8}80", "q": "What is 15% of 80?", "expect": {"number": 12}}],
+     "total": {"key": "\\btotal\\b|\\bsum\\b|altogether", "number": 415}},
+
+    {"id": "capitals", "prompt": "What are the capitals of Australia, Canada, Brazil and Turkey? Give one line per country.",
+     "parts": [
+       {"name": "Australia", "key": "\\baustralia", "expect": {"contains": "Canberra"}},
+       {"name": "Canada", "key": "\\bcanada", "expect": {"contains": "Ottawa"}},
+       {"name": "Brazil", "key": "\\bbrazil", "expect": {"contains": ["Brasília", "Brasilia"]}},
+       {"name": "Turkey", "key": "\\bturkey|\\btürkiye", "expect": {"contains": "Ankara"}}]},
+
+    {"id": "symbols", "prompt": "Give the chemical symbols for gold, silver, iron and sodium, one line per element.",
+     "parts": [
+       {"name": "gold", "key": "\\bgold\\b", "expect": {"regex": "\\bAu\\b"}},
+       {"name": "silver", "key": "\\bsilver\\b", "expect": {"regex": "\\bAg\\b"}},
+       {"name": "iron", "key": "\\biron\\b", "expect": {"regex": "\\bFe\\b"}},
+       {"name": "sodium", "key": "\\bsodium\\b", "expect": {"regex": "\\bNa\\b"}}]},
+
+    {"id": "letters-sum", "prompt": "Count the letters in the words banana, apple and cherry. Give each count, then the total of the three counts.",
+     "parts": [
+       {"name": "banana", "key": "\\bbanana\\b", "q": "How many letters are in banana?", "expect": {"number": 6}},
+       {"name": "apple", "key": "\\bapple\\b", "q": "How many letters are in apple?", "expect": {"number": 5}},
+       {"name": "cherry", "key": "\\bcherry\\b", "q": "How many letters are in cherry?", "expect": {"number": 6}}],
+     "total": {"key": "\\btotal\\b|\\bsum\\b|altogether", "number": 17}},
+
+    {"id": "grams", "prompt": "Convert 2 kilograms, 0.5 kilograms and 3.2 kilograms to grams. Give each conversion, then the total in grams.",
+     "parts": [
+       {"name": "2 kilograms", "key": "(?<![\\d.])2\\s*(?:kilograms?|kg)\\b", "q": "Convert 2 kilograms to grams.", "expect": {"number": 2000}},
+       {"name": "0.5 kilograms", "key": "0\\.5\\s*(?:kilograms?|kg)\\b", "q": "Convert 0.5 kilograms to grams.", "expect": {"number": 500}},
+       {"name": "3.2 kilograms", "key": "3\\.2\\s*(?:kilograms?|kg)\\b", "q": "Convert 3.2 kilograms to grams.", "expect": {"number": 3200}}],
+     "total": {"key": "\\btotal\\b|\\bsum\\b|altogether", "number": 5700}},
+
+    {"id": "trick-quiz", "prompt": "Answer each, numbered 1 to 3. 1) Which is heavier, a kilogram of feathers or a kilogram of steel? 2) In a race, you pass the person in second place. What place are you in now? 3) How many months of the year have 28 days?",
+     "parts": [
+       {"name": "1) feathers", "key": "^\\W*1\\s*[.):]|feathers", "expect": {"contains": ["same", "equal", "neither", "both weigh"]}},
+       {"name": "2) race", "key": "^\\W*2\\s*[.):]|\\brace\\b", "expect": {"contains": ["second", "2nd"]}},
+       {"name": "3) months", "key": "^\\W*3\\s*[.):]|\\bmonths\\b", "q": "How many months of the year have 28 days?", "expect": {"number": 12}}]},
+
+    {"id": "sequential", "prompt": "Start with 12. Multiply it by 3, add 9 to the result, then divide that by 5. What number do you end with?",
+     "parts": [],
+     "total": {"key": "", "number": 9}}
+  ]
+}

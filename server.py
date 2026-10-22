@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local web page for the relay: type a task, watch it travel down the chain and back up.
-Also runs blind, vision (read a photo, then hand the text on) and roundtable modes.
+Also runs blind, orchestrator, vision (read a photo, then hand the text on) and roundtable modes.
 
 Run:   python3 server.py        then open http://localhost:8765
 """
@@ -19,6 +19,7 @@ import report
 
 PORT = 8765
 PAGE = Path(__file__).with_name("ui.html")
+MODES = ("relay", "blind", "orchestrator", "vision", "roundtable")  # the page checks this, so a stale server says so
 RAM_GB = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)  # GiB, as Apple advertises it
 MAX_BODY = 60 * 2**20  # uploaded photos, base64-encoded
 
@@ -44,7 +45,8 @@ class Handler(BaseHTTPRequestHandler):
                 models = [{"name": m["name"], "gb": round(m["size"] / 1e9, 1), "vision": "vision" in c,
                            "tools": "tools" in c, "text": "completion" in c or not c}  # unknown: assume it writes text
                           for m, c in zip(tags, found)]
-                body = {"models": models, "default": relay.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB}
+                body = {"models": models, "default": relay.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
+                        "modes": MODES}
             except OSError as e:
                 body = {"error": f"Can't reach Ollama at {relay.OLLAMA}. Is the app running? ({e})"}
             self.reply(200, "application/json", json.dumps(body).encode())
@@ -105,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
         split = lambda v: v if isinstance(v, list) else [x for x in str(v or "").split(",") if x]
         mode, sab = q.get("mode", "relay"), str(q.get("saboteur", ""))
         try:
-            if mode not in ("relay", "blind", "vision", "roundtable"):
+            if mode not in MODES:
                 raise ValueError(f"unknown mode {mode!r}")
             if mode == "vision" and q.get("format", "text") not in relay.FORMATS:
                 raise ValueError(f"unknown format {q.get('format')!r}")

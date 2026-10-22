@@ -10,6 +10,7 @@ Run:   python3 relay.py "2+2"
        python3 relay.py --chain granite4.2:8b,gemma3:4b,gemma3:1b "2+2"
        python3 relay.py --json "2+2"     (full trace as JSON)
        python3 relay.py --blind "2+2"    (every model answers on its own)
+       python3 relay.py --orchestrator --chain granite4.2:8b,gemma3:1b "Count the r's in strawberry and in mirror"
        python3 relay.py --rule "Answer in one word." "Capital of Japan?"
        python3 relay.py --saboteur 2 "Capital of Japan?"   (layer 2 plants a wrong answer)
 """
@@ -134,10 +135,19 @@ def ask(model, prompt, kind, rule="", max_tokens=MAX_TOKENS, images=None, num_ct
     if "<think>" in r["response"]:  # reasoning written into the reply; keep only the answer
         answer = re.sub(r"(?s)<think>.*?</think>", "", r["response"])
         r["response"] = "" if "<think>" in answer else answer  # still open: cut off mid-thought
+    if "</think>" in r["response"]:  # reasoning with only the closing tag; the answer comes after it
+        r["response"] = r["response"].rsplit("</think>", 1)[1]
     try:
         out = json.loads(r["response"]) if kind != "bottom" else {"answer": r["response"].strip()}
-    except ValueError:
-        out = {"answer": r["response"].strip(), "instruction": r["response"].strip()}
+    except ValueError:  # usually JSON cut off at the token cap: keep what the answer field had
+        text = r["response"].strip()
+        m = re.search(r'"(?:answer|instruction)"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+        if m:
+            try:
+                text = json.loads(f'"{m.group(1).rstrip(chr(92))}"')
+            except ValueError:
+                text = m.group(1)
+        out = {"answer": text, "instruction": text}
     out["cut"] = r.get("done_reason") == "length"  # hit the token cap mid-answer
     out["load"] = round(r.get("load_duration", 0) / 1e9, 1)  # seconds spent loading the model first
     toks = r.get("eval_count", 0)
@@ -174,7 +184,8 @@ def relay(task, chain, rule="", on_event=lambda e: None, saboteur=None):
 
     def call(layer, dir, model, prompt, kind):
         on_event({"type": "call", "dir": dir, "layer": layer, "model": model})
-        return ask(model, prompt, kind, rule)
+        # a checker repeats the whole answer inside JSON; 200 tokens cut long answers off mid-JSON
+        return ask(model, prompt, kind, rule, MAX_TOKENS if dir == "down" else BLIND_TOKENS)
 
     def step(layer, entry):
         entry["layer"] = layer
@@ -771,6 +782,67 @@ def roundtable(task, chain, rule="", on_event=lambda e: None, rounds=2, ending="
     return answer, trace, extra
 
 
+# ---- orchestrator mode ----
+
+MAX_SUBTASKS = 6
+# Prompts say only what the setup needs (who sees what, the subtask limit) and leave the
+# thinking to the models: no advice on how to split, check or format. Workers get the
+# subtask word for word, as in Blind.
+PLAN_PROMPT = (
+    "Split this task into subtasks for other AI models to do. Each model sees only its own "
+    "subtask. At most {max} subtasks.\n\nTask: {task}"
+)
+MERGE_PROMPT = (
+    "You split this task into subtasks for other AI models:\n{task}\n\n"
+    "Their answers:\n{results}\n\nGive the final answer to the task."
+)
+
+
+def orchestrate(task, chain, rule="", on_event=lambda e: None):
+    """The first model splits the task into subtasks, the rest of the chain does them (taking turns,
+    so one worker model can do them all), and the first model merges the results."""
+    snapshots.clear()
+    boss, workers = chain[0], chain[1:] or chain[:1]
+    trace = []
+
+    def step(entry):
+        trace.append(entry)
+        on_event({"type": "step", **entry})
+
+    on_event({"type": "call", "dir": "plan", "layer": 0, "model": boss})
+    schema = {"type": "object", "required": ["subtasks"], "properties": {"subtasks": {
+        "type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": MAX_SUBTASKS}}}
+    out, secs, tps = ask(boss, PLAN_PROMPT.format(task=task, max=MAX_SUBTASKS), "plan", rule,
+                         BLIND_TOKENS, schema=schema)
+    subtasks = [str(t).strip() for t in out.get("subtasks") or [] if str(t).strip()][:MAX_SUBTASKS]
+    planned = bool(subtasks)
+    subtasks = subtasks or [task]  # an unreadable plan: hand the whole task to one worker
+    step({"dir": "plan", "layer": 0, "model": boss, "subtasks": subtasks, "planned": planned,
+          "workers": [workers[k % len(workers)] for k in range(len(subtasks))],
+          "sent": "\n".join(f"{k + 1}. {t}" for k, t in enumerate(subtasks)),
+          "secs": secs, "tok_s": tps, "cut": out["cut"]})
+
+    answers = []
+    for k, sub in enumerate(subtasks):
+        model = workers[k % len(workers)]
+        on_event({"type": "call", "dir": "work", "layer": k + 1, "model": model})
+        out, secs, tps = ask(model, sub, "bottom", rule, BLIND_TOKENS)
+        answers.append(out["answer"])
+        step({"dir": "work", "layer": k + 1, "model": model, "task": sub, "sent": out["answer"],
+              "secs": secs, "tok_s": tps, "cut": out["cut"]})
+
+    last = len(subtasks) + 1
+    results = "\n\n".join(f"Subtask {k + 1}: {t}\nAnswer: {a}" for k, (t, a) in enumerate(zip(subtasks, answers)))
+    on_event({"type": "call", "dir": "merge", "layer": last, "model": boss})
+    out, secs, tps = ask(boss, MERGE_PROMPT.format(task=task, results=results), "bottom", rule,
+                         VISION_TOKENS, num_ctx=COMBINE_CTX)  # some models work it all out again before merging
+    step({"dir": "merge", "layer": last, "model": boss, "sent": out["answer"], "secs": secs, "tok_s": tps,
+          "cut": out["cut"]})
+    return out["answer"], trace, {"subtasks": [{"task": t, "worker": workers[k % len(workers)], "answer": a}
+                                               for k, (t, a) in enumerate(zip(subtasks, answers))],
+                                  "planned": planned}
+
+
 def blind(task, chain, rule="", on_event=lambda e: None):
     """Every model gets the original task word for word and answers on its own.
     No model sees another's answer. One model at a time, so it fits in memory."""
@@ -789,7 +861,7 @@ def blind(task, chain, rule="", on_event=lambda e: None):
 def run(task, chain, mode="relay", rule="", on_event=lambda e: None, save=True,
         saboteur=None, cipher_name="base64", images=(), fmt="text", combiner="granite4.2:8b",
         strategy="batch", fields=(), rounds=2, ending="vote", moderator="granite4.2:8b", allow_self=False):
-    """Run one relay, blind, vision or roundtable pass (or a harness cipher case) and return its record, saved to runs/
+    """Run one relay, blind, orchestrator, vision or roundtable pass (or a harness cipher case) and return its record, saved to runs/
     unless save=False."""
     start = time.time()
     settings = {}
@@ -797,6 +869,8 @@ def run(task, chain, mode="relay", rule="", on_event=lambda e: None, save=True,
         answer, trace, extra = None, blind(task, chain, rule, on_event), {}
     elif mode == "cipher":
         answer, trace, extra = cipher(task, chain, rule, on_event, cipher_name)
+    elif mode == "orchestrator":
+        answer, trace, extra = orchestrate(task, chain, rule, on_event)
     elif mode == "vision":
         answer, trace, extra = vision(task, chain, rule, on_event, images, fmt, combiner, strategy, fields)
     elif mode == "roundtable":
@@ -857,13 +931,15 @@ def main():
     p.add_argument("--json", action="store_true", help="print the full trace as JSON")
     p.add_argument("--blind", action="store_true",
                    help="every model answers the original task on its own; no relay")
+    p.add_argument("--orchestrator", action="store_true",
+                   help="the first model splits the task, the rest do the subtasks, the first merges them")
     p.add_argument("--saboteur", type=int, metavar="LAYER",
                    help="relay mode: this layer (1 = top) secretly plants a wrong answer")
     p.add_argument("--rule", default="", help="a rule every model must follow (system prompt)")
     p.add_argument("--no-save", action="store_true", help="don't save this run to runs/")
     a = p.parse_args()
     chain = [m.strip() for m in a.chain.split(",") if m.strip()]
-    mode = "blind" if a.blind else "relay"
+    mode = "blind" if a.blind else "orchestrator" if a.orchestrator else "relay"
 
     r = run(a.task, chain, mode, a.rule, save=not a.no_save,
             saboteur=a.saboteur - 1 if a.saboteur else None)
@@ -871,7 +947,7 @@ def main():
         print(json.dumps(r, indent=2, ensure_ascii=False))
         return
 
-    arrows = {"down": "↓", "answer": "●", "up": "↑", "solo": "●"}
+    arrows = {"down": "↓", "answer": "●", "up": "↑", "solo": "●", "plan": "◇", "work": "●", "merge": "⇢"}
     print(f"TASK  {a.task}\n")
     for t in r["trace"]:
         flag = "  (cut off)" if t.get("cut") else "  (added extra text, dropped)" if t.get("extra") else ""
@@ -880,7 +956,9 @@ def main():
         elif t.get("sabotage"):
             flag = "  (SABOTEUR)"
         print(f"{arrows[t['dir']]} {t['model']:<16} {t['secs']:>5}s {t['tok_s']:>4} tok/s{flag}")
-        print(f"    {t['sent']}")
+        if t["dir"] == "work":
+            print(f"    subtask: {t['task']}")
+        print("    " + t["sent"].replace("\n", "\n    "))
     print(f"\nPEAK    {len(r['peak'])}/{len(chain)} models loaded at once: {', '.join(r['peak'])}")
     if r["answer"] is not None:
         print(f"ANSWER  {r['answer']}")

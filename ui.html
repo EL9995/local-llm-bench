@@ -93,6 +93,7 @@
   .row.off { opacity: .55; }
   .row .eye { font-size: 11px; color: var(--teal); padding-right: 4px; white-space: nowrap; }
   .row.off .eye { color: var(--muted); }
+  .row .job { font-size: 11px; color: var(--violet); padding-right: 4px; white-space: nowrap; }
 
   /* ---- image upload ---- */
   .imgzone { border: 1.5px dashed var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px;
@@ -194,6 +195,7 @@
   .tag.blind { background: var(--up-soft); color: var(--up); }
   .tag.sab { background: var(--bad-soft); color: var(--bad); }
   .tag.vision { background: var(--teal-soft); color: var(--teal); }
+  .tag.orchestrator { background: var(--violet-soft); color: var(--violet); }
   .tag.roundtable { background: var(--pink-soft); color: var(--pink); }
 
   /* ---- roundtable: a group chat ---- */
@@ -288,6 +290,7 @@
     <div class="tabs" role="tablist" aria-label="Mode">
       <button type="button" role="tab" data-mode="blind">Blind</button>
       <button type="button" role="tab" data-mode="vision">Vision</button>
+      <button type="button" role="tab" data-mode="orchestrator">Orchestrator</button>
       <button type="button" role="tab" data-mode="relay">Relay</button>
       <button type="button" role="tab" data-mode="roundtable">Roundtable</button>
     </div>
@@ -421,6 +424,7 @@ const el = (tag, cls, text) => {
 };
 let installed = [], unusable = [], chain = [], ramGb = 0, running = false, openId = null;
 let shownId = null;  // the saved run on screen, which "Save run" saves
+let serverModes = null;  // the modes server.py says it runs
 let current = "blind", saboteur = null;  // saboteur is a model name, so it follows the model when you reorder
 const gb = name => (installed.find(m => m.name === name) || {}).gb || 0;
 
@@ -518,6 +522,9 @@ const MODES = {
   blind: { hint: "Every model gets your prompt word for word and answers on its own. None sees another's answer.",
            placeholder: "Ask something… e.g. How many r's are in strawberry?",
            chain: "The models answer one at a time, in this order. Drag to reorder." },
+  orchestrator: { hint: "The top model splits your task into subtasks, the workers each do one without seeing the rest, and the top model merges their answers.",
+                  placeholder: "A task with parts… e.g. How many r's are in strawberry, berry, mirror and carrot? One line per word.",
+                  chain: "The top model orchestrates. The rest are workers and take subtasks in turn, so a single small worker does them all." },
   roundtable: { hint: "Every model answers on its own, then they discuss in one shared conversation. At the end they vote on the best answer, a moderator sums up, or both.",
                 placeholder: "A question to discuss… e.g. How many times does the letter r appear in strawberry?",
                 chain: "Speaking order, top to bottom. Every message switches models, so small ones that fit in memory together keep it fast." },
@@ -613,6 +620,12 @@ function chainFor(m) {
   if (chains[m]?.some(ok)) return chains[m].filter(ok);
   if (m === "roundtable" && installed.length > 2)  // three small models that fit in memory together
     return [...installed].sort((a, b) => a.gb - b.gb).slice(0, 3).map(x => x.name);
+  if (m === "orchestrator" && installed.length > 1) {  // the biggest model orchestrates, the smallest works
+    const bySize = [...installed].sort((a, b) => b.gb - a.gb).map(x => x.name);
+    const boss = installed.some(x => x.name === "granite4.2:8b") ? "granite4.2:8b" : bySize[0];
+    const worker = installed.some(x => x.name === "gemma3:1b") ? "gemma3:1b" : bySize[bySize.length - 1];
+    return boss === worker ? [boss] : [boss, worker];
+  }
   if (m === "vision") {  // start Vision with the models that can see images, smallest first
     const seeing = installed.filter(x => x.vision).sort((a, b) => a.gb - b.gb).map(x => x.name);
     if (seeing.length) return seeing.slice(0, 2);
@@ -666,7 +679,9 @@ function renderChain() {
     const label = el("span", "name", name); label.append(el("small", null, `${gb(name)} GB`));
     row.append(el("span", "grip", "⋮⋮"), el("span", "n", `${i + 1}`), label);
     const sees = (installed.find(x => x.name === name) || {}).vision;
-    if (current === "vision") {
+    if (current === "orchestrator") {
+      row.append(el("span", "job", i === 0 ? "orchestrates" : "works"));
+    } else if (current === "vision") {
       if (!sees) row.classList.add("off");
       row.append(el("span", "eye", sees ? "reads" : "can't see images"));
     } else if (current === "relay") {
@@ -789,24 +804,31 @@ function renderStage(task, rule, runChain, runMode, sabLayer, imgUrls = [], role
   you.append(you.answer);
   stage.append(you);
 
+  if (runMode === "orchestrator") return addNode(runChain[0], "splits the task", "Orchestrator");
   runChain.forEach((name, i) => {
-    const w = el("div", "wire"); w.append(el("i")); wires.push(w); stage.append(w);
     const bottom = i === runChain.length - 1;
     const role = roles?.[i] ?? { relay: bottom ? "answers" : "rewrites ↓ · checks ↑", blind: "answers on its own",
                    vision: bottom ? "combines the readings" : "reads the photo" }[runMode];
-    const n = el("div", "node");
-    const head = el("div", "head");
-    head.append(el("span", "layer", `Layer ${i + 1}`), el("span", "model", name), el("span", "role", role));
-    if (sabLayer === i) { n.classList.add("sab"); head.append(el("span", "tag sab", "saboteur")); }
-    n.status = el("span", "status", "waiting"); head.append(n.status);
-    n.fold = el("button", "fold-btn", "▾"); n.fold.type = "button";
-    n.fold.setAttribute("aria-label", `Collapse layer ${i + 1}`); n.fold.setAttribute("aria-expanded", "true");
-    head.append(n.fold); head.classList.add("fold");
-    head.onclick = () => setFolded(n, !n.classList.contains("collapsed"));
-    n.down = el("div", "msg down"); n.up = el("div", "msg up");
-    n.append(head, n.down, n.up);
-    nodes.push(n); stage.append(n);
+    addNode(name, role, `Layer ${i + 1}`, sabLayer === i);
   });
+}
+// one card on the stage, with a wire above it
+function addNode(name, role, label, sab = false) {
+  const stage = $("#stage");
+  const w = el("div", "wire"); w.append(el("i")); wires.push(w); stage.append(w);
+  const n = el("div", "node");
+  const head = el("div", "head");
+  head.append(el("span", "layer", label), el("span", "model", name), el("span", "role", role));
+  if (sab) { n.classList.add("sab"); head.append(el("span", "tag sab", "saboteur")); }
+  n.status = el("span", "status", "waiting"); head.append(n.status);
+  n.fold = el("button", "fold-btn", "▾"); n.fold.type = "button";
+  n.fold.setAttribute("aria-label", `Collapse ${label}`); n.fold.setAttribute("aria-expanded", "true");
+  head.append(n.fold); head.classList.add("fold");
+  head.onclick = () => setFolded(n, !n.classList.contains("collapsed"));
+  n.down = el("div", "msg down"); n.up = el("div", "msg up");
+  n.append(head, n.down, n.up);
+  nodes.push(n); stage.append(n);
+  return n;
 }
 
 function setFolded(n, fold) {
@@ -920,6 +942,7 @@ function busy(i, text) {
 function handle(e) {
   if (room && (e.type === "call" || e.type === "step")) return roomHandle(e);
   const n = nodes[e.layer];
+  if (!n && (e.type === "call" || e.type === "step")) return;  // an event for a card this page didn't draw
   if (e.type === "call") {
     const sab = n.classList.contains("sab");
     if (e.dir === "down") { flow(e.layer, "down"); busy(e.layer, "rewriting the task…"); }
@@ -929,6 +952,9 @@ function handle(e) {
     if (e.dir === "extract") { flow(e.layer, "down"); busy(e.layer, `reading ${photoName(e.photo)}…`); }
     if (e.dir === "combine") { flow(e.layer, "down"); busy(e.layer, `combining the readings of ${photoName(e.photo)}…`); }
     if (e.dir === "act") { flow(e.layer, "down"); busy(e.layer, "doing what you asked…"); }
+    if (e.dir === "plan") busy(0, "splitting the task…");
+    if (e.dir === "work") { flow(e.layer, "down"); busy(e.layer, "working on its subtask…"); }
+    if (e.dir === "merge") { flow(e.layer, "up"); busy(e.layer, "merging the answers…"); }
     if (e.dir === "vote") { flow(e.layer, "down"); busy(e.layer, "counting the answers…"); }
   } else if (e.type === "step") {
     const meta = `${e.secs}s · ${e.tok_s} tok/s` + (e.cut ? " · cut off at the token limit" : "");
@@ -971,6 +997,26 @@ function handle(e) {
       n.status.textContent = "done";
     }
     if (e.dir === "act") { addMsg(n, "up", "→ did what you asked", meta + when, e.sent); n.status.textContent = "done"; }
+    if (e.dir === "plan") {
+      const k = e.subtasks.length;
+      fill(n.down, `◇ split it into ${k} subtask${k > 1 ? "s" : ""}`, meta, e.sent,
+           { notes: [!e.planned && "Couldn't read the plan, so the whole task went to one worker."], tone: !e.planned && "bad" });
+      n.status.textContent = "planned";
+      if (nodes.length === 1) {  // the workers' cards, then the merge
+        e.subtasks.forEach((t, j) => addNode(e.workers[j], `subtask ${j + 1}`, `Worker ${j + 1}`));
+        addNode(e.model, "merges the answers", "Orchestrator");
+      }
+    }
+    if (e.dir === "work") {
+      fill(n.down, "↓ its subtask", null, e.task);
+      fill(n.up, "● answered", meta, e.sent);
+      n.status.textContent = "done";
+    }
+    if (e.dir === "merge") {
+      fill(n.down, "⇢ final answer · merged from the workers", meta, e.sent,
+           { notes: [e.cut && "Cut off at the token limit, so this answer is incomplete."], tone: e.cut && "bad" });
+      n.status.textContent = "done";
+    }
     flow(null); busy(null);
   } else if (e.type === "done") {
     finish(e);
@@ -1002,6 +1048,16 @@ function finish(e) {
     parts.push(el("div", "stats", `${e.minds_changed} change${e.minds_changed === 1 ? "" : "s"} of mind · ${e.rounds} discussion round${e.rounds === 1 ? "" : "s"}` +
                                     (e.allow_self ? " · self-votes allowed" : "")));
     parts.push(el("div", "stats", `${e.secs}s · ${e.calls} model calls`));
+  } else if (e.mode === "orchestrator") {
+    const k = (e.subtasks || []).length, ws = [...new Set((e.subtasks || []).map(s => s.worker))];
+    // the answer itself is in the merge card at the bottom; this card just sums the run up
+    const jump = el("a", "ghost btnlink", "Jump to the final answer ↓"); jump.href = "#";
+    jump.onclick = ev => { ev.preventDefault(); nodes[nodes.length - 1]?.scrollIntoView({ block: "start", behavior: "smooth" }); };
+    parts.push(lbl("Done"), jump,
+      el("div", "stats", `${k} subtask${k === 1 ? "" : "s"} · worker${ws.length > 1 ? "s" : ""}: ${ws.join(", ")} · ` +
+                         `merged by ${e.chain[0]}` +
+                         ((e.trace || []).some(t => t.dir === "merge" && t.cut) ? " · cut off at the token limit" : "")),
+      el("div", "stats", `${e.secs}s · ${e.calls} model calls · at most ${e.peak.length} of ${new Set(e.chain).size} models in memory at once`));
   } else if (e.mode === "vision" && e.format === "fields") {
     const asked = e.answer !== e.combined;
     if (asked) parts.push(lbl("Final agent's answer"), el("div", "txt", e.answer));
@@ -1112,6 +1168,8 @@ $("#form").onsubmit = ev => {
     return run(task);
   }
   if (current === "roundtable" && chain.length < 2) return warn("A roundtable needs at least two models.");
+  if (serverModes && !serverModes.includes(current))
+    return warn("server.py is older than this page. Restart it: Ctrl+C in its terminal, then python3 server.py");
   if (task) run(task);
 };
 
@@ -1148,6 +1206,7 @@ $("#saveRun").onclick = saveRun;
 // ---- saved runs ----
 function summary(r) {
   if (r.mode === "blind") return `${r.calls} answers`;
+  if (r.mode === "orchestrator") return `${(r.subtasks || []).length} subtasks → ${String(r.answer).split("\n")[0]}`;
   if (r.mode === "vision") {
     const count = (r.images || [r.image]).length;
     return `${count} photo${count > 1 ? "s" : ""}${count > 1 && r.strategy ? " · " + STRAT[r.strategy].name : ""} · ${FMT[r.format] || r.format} · ${(r.readers || []).length} readers → ${String(r.answer).split("\n")[0]}`;
@@ -1219,6 +1278,7 @@ fetch("/models").then(r => r.json()).then(d => {
   if (d.error) return warn(d.error);
   // every mode needs models that write text; others (e.g. classifiers) are left out, with a note
   installed = d.models.filter(m => m.text !== false); ramGb = d.ram_gb || 0;
+  serverModes = d.modes || [];  // servers older than this list can't say which modes they run
   unusable = d.models.filter(m => m.text === false).map(m => m.name);
   defaultChain = d.default.filter(n => installed.some(m => m.name === n));
   try { chains = JSON.parse(localStorage.getItem(CHAINS_KEY)) || {}; } catch { chains = {}; }

@@ -31,8 +31,8 @@ def blocks(r):
            ("meta", [("Mode", mode.title()), ("When", r.get("time", "").replace("T", " ")),
                      ("Models", " → ".join(r["chain"])), ("Took", f"{r['secs']} s, {r['calls']} model calls")]
             + ([("Rule for every model", r["rule"])] if r.get("rule") else []))]
-    out += {"relay": relay_blocks, "blind": blind_blocks, "vision": vision_blocks,
-            "roundtable": roundtable_blocks}.get(mode, steps_blocks)(r)
+    out += {"relay": relay_blocks, "blind": blind_blocks, "orchestrator": orchestrator_blocks,
+            "vision": vision_blocks, "roundtable": roundtable_blocks}.get(mode, steps_blocks)(r)
     out.append(("note", f"Saved run {r.get('id', '')} · Local LLM Bench"))
     return out
 
@@ -66,6 +66,18 @@ def blind_blocks(r):
     out = [("h2", "Each model's answer, on its own")]
     for t in r["trace"]:
         out.append(("text", f"{t['model']} ({meta(t)})", t["sent"]))
+    return out
+
+
+def orchestrator_blocks(r):
+    plan, *rest = r["trace"]
+    merge = next((t for t in rest if t["dir"] == "merge"), {})
+    cut = " (cut off at the token limit)" if merge.get("cut") else ""
+    out = [("h2", "Final answer"), ("text", f"Merged by {plan['model']}{cut}", r["answer"])]
+    out += [("h2", f"The plan: {len(r['subtasks'])} subtasks"), ("text", f"{plan['model']} ({meta(plan)})", plan["sent"]),
+            ("h2", "The workers")]
+    for t in (x for x in rest if x["dir"] == "work"):
+        out.append(("text", f"Worker {t['layer']} · {t['model']} ({meta(t)}) · subtask: {t['task']}", t["sent"]))
     return out
 
 

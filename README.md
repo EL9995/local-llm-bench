@@ -50,6 +50,12 @@ and [Harness](#harness).
   grid of every model's answer per field, with the ones that differ from the majority highlighted,
   so you can see how each model performed.
 
+- **Orchestrator**: the top model splits your task into subtasks, workers do one each without
+  seeing the task or each other, and the top model merges their answers. Workers take subtasks in
+  turn, so one small model can do them all. The prompts only describe the setup (who sees what, at
+  most 6 subtasks); how to split, check and merge is left to the models. The merge card holds the
+  final answer.
+
 - **Relay**: a frontier model (Claude, ChatGPT) or a person hands a task down through progressively
   smaller models. Each layer rewrites the task for the model below, the bottom one answers, and each
   layer checks the answer on the way back up. **Saboteur** (chaos option) makes one layer secretly
@@ -78,6 +84,7 @@ python3 relay.py --json "2+2"
 python3 relay.py --blind "How many r's are in strawberry?"   # every model answers on its own
 python3 relay.py --rule "Answer with just the number." "2+2"  # a rule every model must follow
 python3 relay.py --saboteur 4 "What is 7 times 8?"           # layer 4 plants a wrong answer
+python3 relay.py --orchestrator --chain granite4.2:8b,gemma3:1b "Count the r's in strawberry and mirror"
 ```
 
 To watch it run, start the web page and open http://localhost:8765:
@@ -114,6 +121,13 @@ python3 harness.py --saboteur      # plus a saboteur at each layer, about 30 min
 python3 harness.py --only mul,strawberry --chain granite4.2:8b,gemma3:1b
 python3 harness.py --show runs/harness/<file>.json   # reprint a scorecard
 ```
+
+`python3 harness.py orchestrator` (about 5 minutes) runs `suites/orchestrator.json`: tasks that split
+into parts with known answers. Code scores each stage: did every part get a subtask, did each
+worker get its part right, did a subtask already contain its answer, and is the orchestrator's
+merged answer right. It also merges the same worker answers by code, to separate a bad worker from a
+bad merge, and runs each model alone on the whole task for comparison. `--chain` sets the
+orchestrator, then the workers (default `granite4.2:8b,gemma3:1b`).
 
 ## Findings so far (2026-10-10, M5 Air 16 GB)
 
