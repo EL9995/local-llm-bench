@@ -71,7 +71,7 @@
 
   /* ---- chain list ---- */
   .chainlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .row { display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; gap: 8px;
+  .row { display: grid; grid-template-columns: auto auto 1fr auto auto auto; align-items: center; gap: 8px;
          padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
          cursor: grab; user-select: none; touch-action: none; position: relative;
          transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .15s; }
@@ -82,9 +82,6 @@
   .row .name small { display: block; font-family: inherit; font-weight: 400; font-size: 11px; color: var(--muted); }
   .row button { background: none; color: var(--muted); font-weight: 500; font-size: 12px; padding: 2px 6px; }
   .row button:hover { color: var(--ink); }
-  .row .sabbtn { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
-  .row .sabbtn[aria-pressed=true] { background: var(--bad); border-color: var(--bad); color: #fff; }
-  .row.sab { border-color: var(--bad); background: var(--bad-soft); }
   .row.lifted { z-index: 2; cursor: grabbing; transition: box-shadow .15s;
                box-shadow: 0 10px 24px rgba(0, 0, 0, .28); border-color: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .row, .row.lifted { transition: none; } }
@@ -93,6 +90,7 @@
   .row.off { opacity: .55; }
   .row .eye { font-size: 11px; color: var(--teal); padding-right: 4px; white-space: nowrap; }
   .row.off .eye { color: var(--muted); }
+  .row .temp { width: 46px; font: 12px var(--mono); padding: 2px 4px; text-align: center; }
   .row .job { font-size: 11px; color: var(--violet); padding-right: 4px; white-space: nowrap; }
 
   /* ---- image upload ---- */
@@ -198,8 +196,11 @@
   .tag.orchestrator { background: var(--violet-soft); color: var(--violet); }
   .tag.roundtable { background: var(--pink-soft); color: var(--pink); }
 
-  /* ---- roundtable: a group chat ---- */
-  .room { display: grid; gap: 10px; margin-top: 14px; }
+  /* ---- debate (mode "roundtable"): the discussion is a group chat, folded away under the verdict ---- */
+  .debatelog { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .debatelog > summary { padding: 12px 16px; cursor: pointer; font-weight: 600; font-size: 14px; }
+  .debatelog > summary small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .room { display: grid; gap: 10px; padding: 0 12px 12px; }
   .divider { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 600; color: var(--muted);
              text-transform: uppercase; letter-spacing: .05em; margin-top: 6px; }
   .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
@@ -227,16 +228,13 @@
   .stagewrap:empty { display: none; }
   .node { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
           padding: 12px 16px; transition: border-color .2s, box-shadow .2s; }
-  .node.sab { border-color: var(--bad); }
   .node.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .node.sab.active { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
   .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .layer { font-size: 12px; color: var(--muted); }
   .model { font-family: var(--mono); font-weight: 600; }
   .role { font-size: 12px; color: var(--muted); }
   .status { margin-left: auto; font-size: 12px; color: var(--muted); }
   .node.active .status { color: var(--accent); }
-  .node.sab.active .status { color: var(--bad); }
   .node.active .status::before { content: ""; display: inline-block; width: 7px; height: 7px;
           border-radius: 50%; background: currentColor; margin-right: 6px; animation: blink 1s infinite; }
   .msg { margin-top: 10px; padding: 8px 12px; border-radius: 8px; display: none; }
@@ -291,8 +289,7 @@
       <button type="button" role="tab" data-mode="blind">Blind</button>
       <button type="button" role="tab" data-mode="vision">Vision</button>
       <button type="button" role="tab" data-mode="orchestrator">Orchestrator</button>
-      <button type="button" role="tab" data-mode="relay">Relay</button>
-      <button type="button" role="tab" data-mode="roundtable">Roundtable</button>
+      <button type="button" role="tab" data-mode="roundtable">Debate</button>
     </div>
   </div>
 </header>
@@ -362,6 +359,12 @@
       <ol class="chainlist" id="chain"></ol>
       <select id="add" aria-label="Add a model"></select>
       <p class="mem" id="mem"></p>
+      <label class="field" style="margin:10px 0 0"><span>Temperature</span>
+        <select id="temp" style="width:100%">
+          <option value="default">Each model's own default: answers can vary</option>
+          <option value="0">0: the same answer every time</option>
+        </select>
+      </label>
     </section>
     <section class="panel" id="visionPanel" hidden>
       <div class="phead"><h2>Vision</h2></div>
@@ -379,7 +382,7 @@
       </div>
     </section>
     <section class="panel" id="roundPanel" hidden>
-      <div class="phead"><h2>Roundtable</h2></div>
+      <div class="phead"><h2>Debate</h2></div>
       <p class="phint">Round 0: everyone answers alone. Then each discussion round, every model reads the whole conversation so far and replies.</p>
       <label class="field"><span>Discussion rounds</span>
         <select id="rounds" style="width:100%">
@@ -390,7 +393,7 @@
         </select>
       </label>
       <div class="field"><span>How it ends</span>
-        <div class="strat ending" role="group" aria-label="How the roundtable ends">
+        <div class="strat ending" role="group" aria-label="How the debate ends">
           <button type="button" data-ending="vote">Vote</button>
           <button type="button" data-ending="moderator">Moderator</button>
           <button type="button" data-ending="both">Both</button>
@@ -425,8 +428,18 @@ const el = (tag, cls, text) => {
 let installed = [], unusable = [], chain = [], ramGb = 0, running = false, openId = null;
 let shownId = null;  // the saved run on screen, which "Save run" saves
 let serverModes = null;  // the modes server.py says it runs
-let current = "blind", saboteur = null;  // saboteur is a model name, so it follows the model when you reorder
-const gb = name => (installed.find(m => m.name === name) || {}).gb || 0;
+let current = "blind";
+// a model can be in a chain more than once: repeats are labeled "gemma3:1b #2" and share one loaded copy
+const base = name => name.replace(/ #\d+$/, "");
+const info = name => installed.find(m => m.name === base(name)) || {};
+const gb = name => info(name).gb || 0;
+const memGb = names => [...new Set(names.map(base))].reduce((t, n) => t + gb(n), 0);
+function nextCopy(name) {  // "gemma3:1b", then "gemma3:1b #2", reusing a number freed by a removal
+  if (!chain.includes(name)) return name;
+  let k = 2;
+  while (chain.includes(`${name} #${k}`)) k++;
+  return `${name} #${k}`;
+}
 
 function warn(text) { $("#banner").textContent = text; $("#banner").classList.toggle("show", !!text); }
 
@@ -503,8 +516,8 @@ const STRAT = {
 let strategy = "batch";
 function renderStrategy() {
   document.querySelectorAll(".strat [data-strategy]").forEach(b => b.setAttribute("aria-pressed", b.dataset.strategy === strategy));
-  const readers = chain.filter(n => (installed.find(x => x.name === n) || {}).vision);
-  const need = [...new Set([...readers, $("#combiner").value])].reduce((t, n) => t + gb(n), 0);
+  const readers = chain.filter(n => info(n).vision);
+  const need = memGb([...readers, $("#combiner").value]);
   const tight = strategy === "stream" && ramGb && need > ramGb * 0.6;
   $("#stratHint").textContent = STRAT[strategy].hint + (images.length === 1 ? " (With one photo, all three work the same.)" : "") +
     ($("#format").value === "fields" && strategy === "together" ? " Custom fields are filled in per photo, so this runs as Batch." : "") +
@@ -516,16 +529,13 @@ $("#combiner").onchange = () => renderStrategy();
 
 // ---- modes ----
 const MODES = {
-  relay: { hint: "Each model rewrites the task for the one below. The bottom one answers, and each layer checks it on the way back up.",
-           placeholder: "Ask something… e.g. What is 7 times 8?",
-           chain: "Top to bottom. Drag to reorder. Turn on Saboteur for a model to have it plant a wrong answer." },
   blind: { hint: "Every model gets your prompt word for word and answers on its own. None sees another's answer.",
            placeholder: "Ask something… e.g. How many r's are in strawberry?",
            chain: "The models answer one at a time, in this order. Drag to reorder." },
   orchestrator: { hint: "The top model splits your task into subtasks, the workers each do one without seeing the rest, and the top model merges their answers.",
                   placeholder: "A task with parts… e.g. How many r's are in strawberry, berry, mirror and carrot? One line per word.",
                   chain: "The top model orchestrates. The rest are workers and take subtasks in turn, so a single small worker does them all." },
-  roundtable: { hint: "Every model answers on its own, then they discuss in one shared conversation. At the end they vote on the best answer, a moderator sums up, or both.",
+  roundtable: { hint: "Every model answers on its own, then they debate in one shared conversation. A moderator gives the verdict, the models vote, or both. The debate itself is folded away under the result.",
                 placeholder: "A question to discuss… e.g. How many times does the letter r appear in strawberry?",
                 chain: "Speaking order, top to bottom. Every message switches models, so small ones that fit in memory together keep it fast." },
   vision: { hint: "Several models read the same photo on their own, then a final agent combines what they found and passes it on.",
@@ -583,11 +593,11 @@ document.querySelectorAll(".strat.fmt button").forEach(b => b.onclick = () => se
 renderFields();
 setFormat("text");
 
-// ---- roundtable settings ----
+// ---- debate settings (the mode is called "roundtable" in code and saved runs) ----
 const ENDS = { vote: "Each model votes for the best final answer. Answers are anonymous and shuffled, and code counts the votes.",
                moderator: "A moderator reads the whole discussion, sums it up and gives a final answer.",
                both: "The models vote, then a moderator sums up, knowing how the vote went." };
-let ending = "vote";
+let ending = "moderator";
 function renderRoundPanel() {
   document.querySelectorAll(".strat.ending button").forEach(b => b.setAttribute("aria-pressed", b.dataset.ending === ending));
   $("#endHint").textContent = ENDS[ending];
@@ -595,7 +605,7 @@ function renderRoundPanel() {
   const sel = $("#moderator"), keep = sel.value || (installed.some(m => m.name === "granite4.2:8b") ? "granite4.2:8b" : installed[0]?.name);
   sel.replaceChildren(...installed.map(m => { const o = el("option", null, `${m.name} · ${m.gb} GB`); o.value = m.name; return o; }));
   if (keep) sel.value = keep;
-  const need = [...new Set([...chain, ...(ending === "vote" ? [] : [sel.value])])].reduce((t, n) => t + gb(n), 0);
+  const need = memGb([...chain, ...(ending === "vote" ? [] : [sel.value])]);
   const tight = chain.length > 3 || (ramGb && need > ramGb * 0.6);
   $("#roundHint").textContent = chain.length < 2 ? "Add at least two models." :
     tight ? `Models switch every message. ${chain.length > 3 ? "Ollama keeps at most 3 loaded at once" : `These need ${need.toFixed(1)} GB`}, so expect reloads and long waits.`
@@ -614,9 +624,15 @@ function visionCards(readers, fmt, combiner, asked) {
 }
 // ---- each tab keeps its own chain, remembered in this browser ----
 const CHAINS_KEY = "model-relay:chains";
+const TEMP_KEY = "model-relay:temperature";  // remembered in this browser
+const TEMPS_KEY = "model-relay:temperatures";  // per chain entry, e.g. {"gemma3:1b #2": 1.2}
+let temps = {};
+try { temps = JSON.parse(localStorage.getItem(TEMPS_KEY)) || {}; } catch {}
+try { $("#temp").value = localStorage.getItem(TEMP_KEY) || "default"; } catch {}
+$("#temp").onchange = () => { try { localStorage.setItem(TEMP_KEY, $("#temp").value); } catch {} };
 let chains = {}, defaultChain = [];
 function chainFor(m) {
-  const ok = n => installed.some(x => x.name === n);
+  const ok = n => installed.some(x => x.name === base(n));
   if (chains[m]?.some(ok)) return chains[m].filter(ok);
   if (m === "roundtable" && installed.length > 2)  // three small models that fit in memory together
     return [...installed].sort((a, b) => a.gb - b.gb).slice(0, 3).map(x => x.name);
@@ -661,7 +677,6 @@ function move(from, to) {
 }
 function remove(i) {
   if (chain.length < 2) return;
-  if (chain[i] === saboteur) saboteur = null;
   chain.splice(i, 1); renderChain();
 }
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -673,24 +688,28 @@ function renderChain() {
   list.querySelectorAll(".row").forEach(r => before[r.dataset.name] = r.getBoundingClientRect().top);
   list.replaceChildren();
   chain.forEach((name, i) => {
-    const row = el("li", "row" + (current === "relay" && name === saboteur ? " sab" : ""));
+    const row = el("li", "row");
     row.tabIndex = 0; row.dataset.i = i; row.dataset.name = name;
     row.setAttribute("aria-label", `Layer ${i + 1}: ${name}. Arrow keys move it, Delete removes it.`);
     const label = el("span", "name", name); label.append(el("small", null, `${gb(name)} GB`));
     row.append(el("span", "grip", "⋮⋮"), el("span", "n", `${i + 1}`), label);
-    const sees = (installed.find(x => x.name === name) || {}).vision;
+    const sees = info(name).vision;
     if (current === "orchestrator") {
       row.append(el("span", "job", i === 0 ? "orchestrates" : "works"));
     } else if (current === "vision") {
       if (!sees) row.classList.add("off");
       row.append(el("span", "eye", sees ? "reads" : "can't see images"));
-    } else if (current === "relay") {
-      const s = el("button", "sabbtn", "Saboteur"); s.type = "button";
-      s.setAttribute("aria-pressed", name === saboteur);
-      s.title = "Make this model secretly plant a wrong answer";
-      s.onclick = () => { saboteur = saboteur === name ? null : name; renderChain(); };
-      row.append(s);
     } else row.append(el("span"));
+    const t = el("input", "temp"); t.inputMode = "decimal"; t.placeholder = "temp"; t.value = temps[name] ?? "";
+    t.title = "This copy's temperature, 0 to 2. Leave it blank to use the Temperature setting below.";
+    t.setAttribute("aria-label", `Temperature for ${name}`);
+    t.onchange = () => {
+      const v = parseFloat(t.value);
+      if (t.value.trim() === "" || isNaN(v)) { delete temps[name]; t.value = ""; }
+      else { temps[name] = Math.min(2, Math.max(0, v)); t.value = temps[name]; }
+      try { localStorage.setItem(TEMPS_KEY, JSON.stringify(temps)); } catch {}
+    };
+    row.append(t);
     const x = el("button", null, "✕"); x.type = "button"; x.title = "Remove"; x.disabled = chain.length < 2;
     x.onclick = () => remove(i);
     row.append(x);
@@ -713,16 +732,20 @@ function renderChain() {
   });
 
   const seeing = current === "vision";  // the Vision tab only offers models that can see images
-  const add = $("#add"), rest = installed.filter(m => !chain.includes(m.name) && (!seeing || m.vision));
+  const add = $("#add"), rest = installed.filter(m => !seeing || m.vision);
   const first = el("option", null, rest.length ? (seeing ? "+ Add a model that can see images" : "+ Add a model")
-                                              : seeing ? "All models that can see images are in the chain"
-                                                       : "All installed models are in the chain");
+                                              : "No models that can see images are installed");
   first.value = ""; add.replaceChildren(first);
-  rest.forEach(m => { const o = el("option", null, `${m.name} · ${m.gb} GB`); o.value = m.name; add.append(o); });
+  rest.forEach(m => {
+    const copies = chain.filter(n => base(n) === m.name).length;
+    const o = el("option", null, `${m.name} · ${copies ? `add copy #${copies + 1} (no extra memory)` : `${m.gb} GB`}`);
+    o.value = m.name; add.append(o);
+  });
   add.disabled = !rest.length;
 
-  const total = chain.reduce((t, n) => t + gb(n), 0), tight = ramGb && total > ramGb * 0.6;
-  $("#mem").textContent = `${chain.length} models · ${total.toFixed(1)} GB` + (ramGb ? ` · your Mac has ${ramGb} GB` : "") +
+  const total = memGb(chain), tight = ramGb && total > ramGb * 0.6, kinds = new Set(chain.map(base)).size;
+  $("#mem").textContent = `${chain.length} models${kinds < chain.length ? ` (${kinds} different)` : ""} · ${total.toFixed(1)} GB` +
+    (ramGb ? ` · your Mac has ${ramGb} GB` : "") +
     (tight ? ". Not all of them fit in memory at once, so they'll take turns loading, which is slower." : "");
   $("#mem").classList.toggle("tight", !!tight);
   if (unusable.length) $("#mem").append(el("span", "nf", ` Not shown: ${unusable.join(", ")} (can't write text, so no mode can use ${unusable.length > 1 ? "them" : "it"}).`));
@@ -735,12 +758,12 @@ function renderCombiner(pick) {
   if (keep) sel.value = keep;
   renderStrategy();
 }
-$("#add").onchange = e => { if (e.target.value) { chain.push(e.target.value); renderChain(); } };
+$("#add").onchange = e => { if (e.target.value) { chain.push(nextCopy(e.target.value)); renderChain(); } };
 $("#sortBig").onclick = () => { chain.sort((a, b) => gb(b) - gb(a)); renderChain(); };
 $("#flip").onclick = () => { chain.reverse(); renderChain(); };
 
 function drag(e, row, from) {
-  if (e.button !== 0 || e.target.closest("button, select") || settling) return;
+  if (e.button !== 0 || e.target.closest("button, select, input") || settling) return;
   const rows = [...$("#chain").children], tops = rows.map(r => r.getBoundingClientRect().top);
   const step = rows.length > 1 ? tops[1] - tops[0] : 0;  // rows are all the same height
   const x0 = e.clientX, y0 = e.clientY;
@@ -777,10 +800,10 @@ function drag(e, row, from) {
 }
 
 // ---- the stage: You at the top, one card per model, a wire above each card ----
-let nodes = [], wires = [], you, planted = null;
-function renderStage(task, rule, runChain, runMode, sabLayer, imgUrls = [], roles = null) {
+let nodes = [], wires = [], you;
+function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null) {
   room = null;
-  const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = []; planted = null;
+  const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = [];
   const bar = el("div", "stagebar");
   const all = (fold, text) => { const b = el("button", "ghost", text); b.type = "button";
     b.onclick = () => nodes.forEach(n => setFolded(n, fold)); return b; };
@@ -807,19 +830,18 @@ function renderStage(task, rule, runChain, runMode, sabLayer, imgUrls = [], role
   if (runMode === "orchestrator") return addNode(runChain[0], "splits the task", "Orchestrator");
   runChain.forEach((name, i) => {
     const bottom = i === runChain.length - 1;
-    const role = roles?.[i] ?? { relay: bottom ? "answers" : "rewrites ↓ · checks ↑", blind: "answers on its own",
+    const role = roles?.[i] ?? { blind: "answers on its own",
                    vision: bottom ? "combines the readings" : "reads the photo" }[runMode];
-    addNode(name, role, `Layer ${i + 1}`, sabLayer === i);
+    addNode(name, role, runMode === "blind" ? `Model ${i + 1}` : `Layer ${i + 1}`);
   });
 }
 // one card on the stage, with a wire above it
-function addNode(name, role, label, sab = false) {
+function addNode(name, role, label) {
   const stage = $("#stage");
   const w = el("div", "wire"); w.append(el("i")); wires.push(w); stage.append(w);
   const n = el("div", "node");
   const head = el("div", "head");
   head.append(el("span", "layer", label), el("span", "model", name), el("span", "role", role));
-  if (sab) { n.classList.add("sab"); head.append(el("span", "tag sab", "saboteur")); }
   n.status = el("span", "status", "waiting"); head.append(n.status);
   n.fold = el("button", "fold-btn", "▾"); n.fold.type = "button";
   n.fold.setAttribute("aria-label", `Collapse ${label}`); n.fold.setAttribute("aria-expanded", "true");
@@ -863,7 +885,7 @@ function addMsg(n, cls, label, meta, text, opts) {  // for cards that collect se
 }
 const photoName = p => p === null ? "all photos" : p === undefined ? "the photo" : `photo ${p + 1}`;
 
-// ---- roundtable: the stage is a group chat ----
+// ---- debate: the discussion is a group chat inside a fold; the verdict goes on top ----
 const WHO = ["--accent", "--up", "--violet", "--teal", "--warn", "--pink", "--bad"];
 let room = null;
 function renderRoom(task, rule, models) {
@@ -872,12 +894,19 @@ function renderRoom(task, rule, models) {
   const h = el("div", "head"); h.append(el("span", "model", "You"), el("span", "status", ""));
   you.append(h);
   if (rule) { const r = el("div", "msg down show"); r.append(lbl("Rule for every model"), el("div", "txt", rule)); you.append(r); }
-  const m = el("div", "msg down show"); m.append(lbl("Question for the table"), el("div", "txt", task)); you.append(m);
+  const m = el("div", "msg down show"); m.append(lbl("Question for the debate"), el("div", "txt", task)); you.append(m);
   you.answer = el("div", "msg up"); you.append(you.answer);
-  room = { box: el("div", "room"), colors: {}, last: null, typing: el("div", "typing") };
+  room = { box: el("div", "room"), colors: {}, last: null, typing: el("div", "typing"),
+           log: el("details", "debatelog"), sum: el("summary"), said: 0, changed: 0 };
   models.forEach((name, i) => room.colors[name] = `var(${WHO[i % WHO.length]})`);
   room.typing.hidden = true;
-  stage.append(you, room.box, room.typing);
+  room.log.append(room.sum, room.box);
+  countDebate();
+  stage.append(you, room.typing, room.log);
+}
+function countDebate() {
+  room.sum.replaceChildren("Show the debate", el("small", null,
+    `${room.said} message${room.said === 1 ? "" : "s"}` + (room.changed ? ` · ${room.changed} change${room.changed === 1 ? "" : "s"} of mind` : "")));
 }
 function divider(key, text) {
   if (room.last === key) return;
@@ -894,9 +923,9 @@ function roomHandle(e) {
   if (e.type === "call") {
     if (e.dir === "say") divider("r" + e.round, roundName(e.round));
     if (e.dir === "ballot") divider("vote", "The vote");
-    if (e.dir === "moderate") divider("mod", "Moderator");
     room.typing.hidden = false;
-    room.typing.textContent = `${e.model} is ${e.dir === "ballot" ? "voting" : e.dir === "moderate" ? "summing up" : "thinking"}…`;
+    room.typing.textContent = e.dir === "say" ? `${e.model} is ${e.round === 0 ? "answering" : `debating (round ${e.round})`}…`
+      : `${e.model} is ${e.dir === "ballot" ? "voting" : "weighing the debate"}…`;
     room.typing.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return;
   }
@@ -906,6 +935,7 @@ function roomHandle(e) {
     divider("r" + e.round, roundName(e.round));
     const b = bubble(e.model, meta, e.sent, e.changed ? [el("span", "tag sab", "changed their mind")] : []);
     b.append(el("div", "ans", "My answer: " + e.answer));
+    room.said++; room.changed += !!e.changed; countDebate();
   } else if (e.dir === "ballot") {
     divider("vote", "The vote");
     const row = el("div", "ballot"), who = el("b", null, e.model);
@@ -914,8 +944,7 @@ function roomHandle(e) {
     if (e.reason) row.append(el("span", null, e.reason));
     room.box.append(row);
   } else if (e.dir === "moderate") {
-    divider("mod", "Moderator");
-    bubble(e.model, meta, e.sent);
+    room.verdict = { model: e.model, meta, text: e.sent };  // shown on top when the run finishes
   }
 }
 
@@ -944,10 +973,6 @@ function handle(e) {
   const n = nodes[e.layer];
   if (!n && (e.type === "call" || e.type === "step")) return;  // an event for a card this page didn't draw
   if (e.type === "call") {
-    const sab = n.classList.contains("sab");
-    if (e.dir === "down") { flow(e.layer, "down"); busy(e.layer, "rewriting the task…"); }
-    if (e.dir === "answer") { flow(e.layer, "down"); busy(e.layer, sab ? "plotting…" : "answering…"); }
-    if (e.dir === "up") { flow(e.layer + 1, "up"); busy(e.layer, sab ? "plotting…" : "checking the answer…"); }
     if (e.dir === "solo") { flow(e.layer, "down"); busy(e.layer, "answering…"); }
     if (e.dir === "extract") { flow(e.layer, "down"); busy(e.layer, `reading ${photoName(e.photo)}…`); }
     if (e.dir === "combine") { flow(e.layer, "down"); busy(e.layer, `combining the readings of ${photoName(e.photo)}…`); }
@@ -958,31 +983,7 @@ function handle(e) {
     if (e.dir === "vote") { flow(e.layer, "down"); busy(e.layer, "counting the answers…"); }
   } else if (e.type === "step") {
     const meta = `${e.secs}s · ${e.tok_s} tok/s` + (e.cut ? " · cut off at the token limit" : "");
-    if (e.dir === "down") { fill(n.down, "↓ told the model below", meta, e.sent); n.status.textContent = "waiting for the answer"; }
-    if (e.dir === "answer" || e.dir === "solo") {
-      const lied = e.sabotage && e.lied !== false;  // runs saved before "lied" existed count as lies
-      if (lied) planted = e.sent;
-      fill(n.down, lied ? "● planted a wrong answer" : e.sabotage ? "● told to lie, answered honestly" : "● answered",
-           meta, e.sent, { tone: lied ? "bad" : e.sabotage && "fixed" });
-      n.status.textContent = lied ? "planted" : "done";
-    }
-    if (e.dir === "up") {
-      if (e.sabotage && e.lied !== false) {
-        planted = e.sent;
-        fill(n.up, "↑ planted a wrong answer", meta, e.sent, { tone: "bad" });
-        n.status.textContent = "planted";
-      } else if (e.sabotage) {
-        fill(n.up, "↑ told to lie, passed the honest answer", meta, e.sent, { tone: "fixed" });
-        n.status.textContent = "didn't lie";
-      } else if (planted != null && !e.changed) {
-        fill(n.up, "↑ approved the planted answer", meta, e.sent, { tone: "bad", notes: [e.note] });
-        n.status.textContent = "fooled";
-      } else {
-        planted = null;  // the planted answer is gone from here up
-        fill(n.up, e.changed ? "↑ changed it" : "↑ passed it up", meta, e.sent, { tone: e.changed && "fixed", notes: [e.note] });
-        n.status.textContent = e.changed ? "changed it" : "approved";
-      }
-    }
+    if (e.dir === "solo") { fill(n.down, "● answered", meta, e.sent); n.status.textContent = "done"; }
     const when = (e.load >= 0.5 ? ` · ${e.load}s loading` : "") + (e.at != null ? ` · done at ${e.at}s` : "");
     if (e.dir === "extract" || e.dir === "combine") {
       const verb = e.dir === "combine" ? "⇢ combined" : e.format === "fields" ? "◉ filled in" : "◉ read";
@@ -1021,7 +1022,7 @@ function handle(e) {
   } else if (e.type === "done") {
     finish(e);
   } else if (e.type === "error") {
-    flow(null); busy(null); warn("Relay failed: " + e.message);
+    flow(null); busy(null); warn("The run failed: " + e.message);
   }
 }
 
@@ -1044,7 +1045,10 @@ function finish(e) {
       });
       parts.push(t);
     }
-    if (e.summary) parts.push(lbl("Moderator's final answer"), el("div", "final", e.answer));
+    if (e.summary) {
+      const v = room?.verdict;
+      parts.unshift(lbl(`Moderator's verdict · ${e.moderator}`, v?.meta), el("div", "txt", e.summary));
+    }
     parts.push(el("div", "stats", `${e.minds_changed} change${e.minds_changed === 1 ? "" : "s"} of mind · ${e.rounds} discussion round${e.rounds === 1 ? "" : "s"}` +
                                     (e.allow_self ? " · self-votes allowed" : "")));
     parts.push(el("div", "stats", `${e.secs}s · ${e.calls} model calls`));
@@ -1057,7 +1061,7 @@ function finish(e) {
       el("div", "stats", `${k} subtask${k === 1 ? "" : "s"} · worker${ws.length > 1 ? "s" : ""}: ${ws.join(", ")} · ` +
                          `merged by ${e.chain[0]}` +
                          ((e.trace || []).some(t => t.dir === "merge" && t.cut) ? " · cut off at the token limit" : "")),
-      el("div", "stats", `${e.secs}s · ${e.calls} model calls · at most ${e.peak.length} of ${new Set(e.chain).size} models in memory at once`));
+      el("div", "stats", `${e.secs}s · ${e.calls} model calls · at most ${e.peak.length} of ${new Set(e.chain.map(base)).size} models in memory at once`));
   } else if (e.mode === "vision" && e.format === "fields") {
     const asked = e.answer !== e.combined;
     if (asked) parts.push(lbl("Final agent's answer"), el("div", "txt", e.answer));
@@ -1085,21 +1089,10 @@ function finish(e) {
     if (e.first_result != null)
       parts.push(el("div", "verdict", `${count > 1 ? STRAT[e.strategy].name + " · " : ""}first result at ${e.first_result}s · all done at ${e.secs}s · ${e.load_secs}s loading models`));
     parts.push(el("div", "stats", `${count} photo${count > 1 ? "s" : ""} · ${e.calls} model calls · final agent: ${e.combiner}`));
-  } else {
-    parts.push(lbl("Final answer"), el("div", "final", e.answer));
-    const s = e.sabotage;
-    if (s) {
-      const [text, tone] = {
-        caught: [`Saboteur caught ✓ by layer ${s.caught_by + 1} (${s.caught_by_model})` +
-                 (s.final_is_honest ? "" : ", but the final answer still differs from the honest one"), "good"],
-        slipped: [`Saboteur slipped through ✗ Nobody above layer ${s.layer + 1} changed "${s.planted}".`, "bad"],
-        no_lie: ["The saboteur didn't lie; it gave the honest answer anyway.", ""],
-      }[s.outcome];
-      parts.push(el("div", "verdict " + tone, text));
-      if (s.honest != null) parts.push(el("div", "stats", `Honest answer: ${s.honest} · planted: ${s.planted}`));
-    }
-    parts.push(el("div", "stats", `${e.secs}s · ${e.calls} model calls · at most ${e.peak.length} of ${e.chain.length} models in memory at once`));
   }
+  if (e.temperature !== undefined)  // runs saved before the setting existed were all at 0
+    parts.push(el("div", "stats", `Temperature: ${e.temperature === null ? "each model's own default" : e.temperature}` +
+      Object.entries(e.temperatures || {}).map(([m, t]) => ` · ${m} at ${t ?? "its own default"}`).join("")));
   parts.push(el("div", "stats", e.id ? `Saved ${e.time.replace("T", " ")} · runs/${e.id}.json` : "Not saved"));
   setShown(e.id || null);
   if (e.id) {  // readable copies of the run
@@ -1113,21 +1106,21 @@ function finish(e) {
     you.answer.replaceChildren(...parts); you.answer.classList.add("show");
     you.scrollIntoView({ block: "nearest", behavior: "smooth" });
   };
-  if (e.mode === "relay") { flow(0, "up"); setTimeout(show, 700); } else show();
+  show();
 }
 
 async function run(task) {
   running = true; $("#go").disabled = true; warn(""); setShown(null);
   const rule = $("#rule").value.trim(), m = current;
-  const sab = m === "relay" && chain.includes(saboteur) ? chain.indexOf(saboteur) : null;
   openId = null;
-  const readers = chain.filter(n => (installed.find(x => x.name === n) || {}).vision);
+  const readers = chain.filter(n => info(n).vision);
   if (m === "vision") {
     const cards = visionCards(readers, $("#format").value, $("#combiner").value, !!task);
-    renderStage(task, rule, cards.names, m, null, images.map(i => i.url), cards.roles);
+    renderStage(task, rule, cards.names, m, images.map(i => i.url), cards.roles);
   } else if (m === "roundtable") renderRoom(task, rule, chain);
-  else renderStage(task, rule, chain, m, sab);
-  const params = { task, chain: chain.join(","), mode: m, rule, saboteur: sab ?? "",
+  else renderStage(task, rule, chain, m);
+  const params = { task, chain: chain.join(","), mode: m, rule, temperature: $("#temp").value,
+                   temps: Object.fromEntries(chain.filter(n => temps[n] !== undefined).map(n => [n, temps[n]])),
                    ...(m === "vision" ? { images: images.map(i => i.b64), format: $("#format").value,
                                           combiner: $("#combiner").value, strategy,
                                           fields: fieldSpec.filter(f => f.name.trim()) } : {}),
@@ -1163,11 +1156,11 @@ $("#form").onsubmit = ev => {
     if (!images.length) return warn("Add a photo first: drop one in, paste it, or choose a file.");
     if ($("#format").value === "fields" && !fieldSpec.some(f => f.name.trim()))
       return warn("Name at least one field for the models to fill in.");
-    if (!chain.some(n => (installed.find(x => x.name === n) || {}).vision))
+    if (!chain.some(n => info(n).vision))
       return warn("None of the models in the chain can see images. Add gemma3:4b or a gemma4 model.");
     return run(task);
   }
-  if (current === "roundtable" && chain.length < 2) return warn("A roundtable needs at least two models.");
+  if (current === "roundtable" && chain.length < 2) return warn("A debate needs at least two models.");
   if (serverModes && !serverModes.includes(current))
     return warn("server.py is older than this page. Restart it: Ctrl+C in its terminal, then python3 server.py");
   if (task) run(task);
@@ -1211,12 +1204,11 @@ function summary(r) {
     const count = (r.images || [r.image]).length;
     return `${count} photo${count > 1 ? "s" : ""}${count > 1 && r.strategy ? " · " + STRAT[r.strategy].name : ""} · ${FMT[r.format] || r.format} · ${(r.readers || []).length} readers → ${String(r.answer).split("\n")[0]}`;
   }
-  if (r.mode === "roundtable") {
+  if (r.mode === "roundtable") {  // shown as Debate
     const w = r.winners || [];
     return `${r.rounds} round${r.rounds === 1 ? "" : "s"} · ` + (w.length === 1 ? `winner ${w[0]}` : w.length ? "tie" : r.ending) + ` → ${r.answer}`;
   }
-  const s = r.sabotage;
-  return `→ ${r.answer}` + (s ? ` · saboteur ${{ caught: "caught", slipped: "slipped through", no_lie: "didn't lie" }[s.outcome]}` : "");
+  return `→ ${r.answer}`;
 }
 async function loadHistory() {
   let runs = [];
@@ -1228,7 +1220,7 @@ async function loadHistory() {
   list.replaceChildren(...runs.map(r => {
     const b = el("button");
     b.className = r.id === openId ? "current" : "";
-    const tag = r.sabotage ? ["sab", "saboteur"] : [r.mode === "relay" ? "" : r.mode, r.mode];
+    const tag = [r.mode, r.mode === "roundtable" ? "debate" : r.mode];
     b.append(el("span", "tag " + tag[0], tag[1]), el("span", "q", r.task || (r.mode === "vision" ? "Read a photo" : "")),
              el("span", "a", `${r.time.slice(5, 16).replace("T", " ")} · ` + summary(r) +
                              ` · ${r.chain.length} models · ${r.secs}s` + (r.rule ? ` · rule: ${r.rule}` : "")));
@@ -1257,18 +1249,18 @@ async function openRun(id) {
   if (imgUrls.length) Promise.all(imgUrls.map(u => fetch(u).then(x => x.blob())))  // put the photos back so Run repeats the run
     .then(blobs => { images = []; return takeImages(blobs.map((b, i) => new File([b], `photo ${i + 1} from this run`, { type: "image/jpeg" }))); })
     .catch(() => {});
-  saboteur = r.saboteur != null ? r.chain[r.saboteur] : null;
-  const missing = r.chain.filter(n => !installed.some(m => m.name === n));
+  $("#temp").value = r.temperature === null ? "default" : "0";  // older runs have no setting and were at 0
+  Object.entries(r.temperatures || {}).forEach(([m, t]) => { if (t != null) temps[m] = t; });
+  const missing = r.chain.filter(n => !installed.some(m => m.name === base(n)));
   if (missing.length) warn("Not installed any more: " + missing.join(", "));
   setMode(r.mode);  // switch tabs first, so the run's chain lands in its own tab
   if (!missing.length) { chain = [...r.chain]; renderChain(); }
   if (r.mode === "vision") {
     const cards = visionCards(r.readers, r.format, r.combiner, r.answer !== r.combined);
-    renderStage(r.task, r.rule, cards.names, r.mode, null, imgUrls, cards.roles);
+    renderStage(r.task, r.rule, cards.names, r.mode, imgUrls, cards.roles);
   } else if (r.mode === "roundtable") { renderRoom(r.task, r.rule, r.chain); renderRoundPanel(); }
-  else renderStage(r.task, r.rule, r.chain, r.mode, r.saboteur ?? null);
-  const honest = r.sabotage?.outcome === "no_lie";  // older runs didn't record "lied" per step
-  r.trace.forEach(t => handle({ type: "step", ...t, ...(t.sabotage && t.lied === undefined ? { lied: !honest } : {}) }));
+  else renderStage(r.task, r.rule, r.chain, r.mode);
+  r.trace.forEach(t => handle({ type: "step", ...t }));
   finish(r);
   loadHistory();
 }

@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-import relay
+import bench
 
 FMT = {"text": "plain text", "markdown": "Markdown", "json": "JSON", "fields": "custom fields"}
 STRAT = {"together": "all at once", "batch": "batch", "stream": "photo by photo"}
@@ -27,11 +27,16 @@ def show(v):
 
 def blocks(r):
     mode = r["mode"]
-    out = [("h1", r["task"] or {"vision": "Reading a photo"}.get(mode, mode.title())),
-           ("meta", [("Mode", mode.title()), ("When", r.get("time", "").replace("T", " ")),
+    name = {"roundtable": "Debate"}.get(mode, mode.title())  # the page calls roundtable "Debate"
+    out = [("h1", r["task"] or {"vision": "Reading a photo"}.get(mode, name)),
+           ("meta", [("Mode", name), ("When", r.get("time", "").replace("T", " ")),
                      ("Models", " → ".join(r["chain"])), ("Took", f"{r['secs']} s, {r['calls']} model calls")]
-            + ([("Rule for every model", r["rule"])] if r.get("rule") else []))]
-    out += {"relay": relay_blocks, "blind": blind_blocks, "orchestrator": orchestrator_blocks,
+            + ([("Rule for every model", r["rule"])] if r.get("rule") else [])
+            + ([("Temperature", ("each model's own default" if r["temperature"] is None else str(r["temperature"]))
+                 + "".join(f"; {m} at {'its own default' if t is None else t}"
+                           for m, t in (r.get("temperatures") or {}).items()))]
+               if "temperature" in r else []))]
+    out += {"blind": blind_blocks, "orchestrator": orchestrator_blocks,
             "vision": vision_blocks, "roundtable": roundtable_blocks}.get(mode, steps_blocks)(r)
     out.append(("note", f"Saved run {r.get('id', '')} · Local LLM Bench"))
     return out
@@ -39,27 +44,6 @@ def blocks(r):
 
 def meta(t):
     return f"{t.get('secs', 0)} s · {t.get('tok_s', 0)} tok/s" + (" · cut off at the length limit" if t.get("cut") else "")
-
-
-def relay_blocks(r):
-    out = [("h2", "Final answer"), ("p", r["answer"])]
-    s = r.get("sabotage")
-    if s:
-        verdict = {"caught": f"Caught by layer {s.get('caught_by', 0) + 1} ({s.get('caught_by_model')}).",
-                   "slipped": f"Slipped through: nobody above layer {s['layer'] + 1} changed it.",
-                   "no_lie": "The saboteur didn't lie; it gave the honest answer anyway."}[s["outcome"]]
-        out += [("h2", "Saboteur"), ("p", f"Layer {s['layer'] + 1} ({s['model']}) was told to plant a wrong answer. "
-                                          f"Honest answer: {s.get('honest')}. Planted: {s.get('planted')}. {verdict}")]
-    out.append(("h2", "Step by step"))
-    what = {"down": "told the model below", "answer": "answered", "up": "checked the answer and passed up"}
-    for t in r["trace"]:
-        label = what[t["dir"]]
-        if t["dir"] == "up" and t.get("changed"):
-            label = "changed the answer"
-        if t.get("sabotage"):
-            label = "planted a wrong answer" if t.get("lied", True) else "was told to lie, answered honestly"
-        out.append(("text", f"Layer {t['layer'] + 1} · {t['model']} {label} ({meta(t)})", t["sent"]))
-    return out
 
 
 def blind_blocks(r):
@@ -118,19 +102,19 @@ def vision_blocks(r):
 
 def roundtable_blocks(r):
     out = []
+    if r.get("summary"):  # the verdict first; the debate itself follows
+        out += [("h2", f"Moderator's verdict ({r['moderator']})"), ("p", r["summary"])]
     if r.get("winners"):
         w = r["winners"]
         out += [("h2", "Winner" if len(w) == 1 else "Tie"), ("p", "  /  ".join(f"{m}: {r['answers'][m]}" for m in w)),
                 ("table", ["Model", "Votes"], [[m, str(c)] for m, c in r["tally"].items()])]
-    if r.get("summary"):
-        out += [("h2", f"Moderator ({r['moderator']})"), ("p", r["summary"])]
     out.append(("p", f"{r['rounds']} discussion round(s), {r.get('minds_changed', 0)} change(s) of mind."))
     last = None
     for t in r["trace"]:
         if t["dir"] == "say":
             if t["round"] != last:
                 last = t["round"]
-                out.append(("h2", "Round 0: everyone answers alone" if last == 0 else f"Round {last}: discussion"))
+                out.append(("h2", "Round 0: everyone answers alone" if last == 0 else f"Round {last}: debate"))
             changed = " · changed their mind" if t.get("changed") else ""
             out.append(("text", f"{t['model']}{changed} ({meta(t)})", t["sent"]))
     ballots = r.get("ballots") or []
@@ -218,7 +202,7 @@ def to_html(r):
             out.append("<table><tr>" + "".join(f"<th>{e(h)}</th>" for h in b[1]) + "</tr>"
                        + "".join("<tr>" + "".join(f"<td>{e(c)}</td>" for c in row) + "</tr>" for row in b[2]) + "</table>")
         elif kind == "img":
-            path = relay.RUNS / "images" / b[1]
+            path = bench.RUNS / "images" / b[1]
             if path.is_file():  # embedded, so the page works on its own
                 out.append(f'<img alt="photo" src="data:image/jpeg;base64,{base64.b64encode(path.read_bytes()).decode()}">')
         elif kind == "note":
@@ -230,7 +214,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__.strip().splitlines()[-1])
     run = json.loads(Path(sys.argv[1]).read_text())
-    folder = relay.RUNS / "reports"
+    folder = bench.RUNS / "reports"
     folder.mkdir(parents=True, exist_ok=True)
     stem = folder / Path(sys.argv[1]).stem
     stem.with_suffix(".md").write_text(to_markdown(run))

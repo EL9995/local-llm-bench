@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Local web page for the relay: type a task, watch it travel down the chain and back up.
-Also runs blind, orchestrator, vision (read a photo, then hand the text on) and roundtable modes.
+"""Local web page for the bench: type a task, pick models, and watch every model's answer arrive.
+Runs blind, orchestrator, vision (read a photo, then hand the text on) and debate ("roundtable"
+in code) modes.
 
 Run:   python3 server.py        then open http://localhost:8765
 """
@@ -14,19 +15,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import relay
+import bench
 import report
 
 PORT = 8765
 PAGE = Path(__file__).with_name("ui.html")
-MODES = ("relay", "blind", "orchestrator", "vision", "roundtable")  # the page checks this, so a stale server says so
+MODES = ("blind", "orchestrator", "vision", "roundtable")  # the page checks this, so a stale server says so
 RAM_GB = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)  # GiB, as Apple advertises it
 MAX_BODY = 60 * 2**20  # uploaded photos, base64-encoded
 
 
 def caps(name):
     try:
-        return relay.capabilities(name)
+        return bench.capabilities(name)
     except OSError:
         return []
 
@@ -39,22 +40,22 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, "text/html; charset=utf-8", PAGE.read_bytes())
         elif url.path == "/models":
             try:
-                tags = relay.post_get("/api/tags").get("models", [])
+                tags = bench.post_get("/api/tags").get("models", [])
                 with ThreadPoolExecutor(8) as pool:
                     found = list(pool.map(caps, [m["name"] for m in tags]))
                 models = [{"name": m["name"], "gb": round(m["size"] / 1e9, 1), "vision": "vision" in c,
                            "tools": "tools" in c, "text": "completion" in c or not c}  # unknown: assume it writes text
                           for m, c in zip(tags, found)]
-                body = {"models": models, "default": relay.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
+                body = {"models": models, "default": bench.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
                         "modes": MODES}
             except OSError as e:
-                body = {"error": f"Can't reach Ollama at {relay.OLLAMA}. Is the app running? ({e})"}
+                body = {"error": f"Can't reach Ollama at {bench.OLLAMA}. Is the app running? ({e})"}
             self.reply(200, "application/json", json.dumps(body).encode())
         elif url.path == "/runs":
-            self.reply(200, "application/json", json.dumps(relay.list_runs()).encode())
+            self.reply(200, "application/json", json.dumps(bench.list_runs()).encode())
         elif url.path.startswith("/runs/") and url.path.endswith((".md", ".html")):
             rid, ext = url.path[len("/runs/"):].rsplit(".", 1)
-            r = relay.load_run(rid)
+            r = bench.load_run(rid)
             if not r:
                 self.reply(404, "text/plain", b"no such run")
             elif ext == "md":  # a download
@@ -63,20 +64,20 @@ class Handler(BaseHTTPRequestHandler):
             else:  # opens as a page; Print > Save as PDF works from there
                 self.reply(200, "text/html; charset=utf-8", report.to_html(r).encode())
         elif url.path.startswith("/runs/"):
-            r = relay.load_run(url.path[len("/runs/"):])
+            r = bench.load_run(url.path[len("/runs/"):])
             if r:
                 self.reply(200, "application/json", json.dumps(r, ensure_ascii=False).encode())
             else:
                 self.reply(404, "text/plain", b"no such run")
         elif url.path.startswith("/images/"):
             name = url.path[len("/images/"):]
-            path = relay.RUNS / "images" / name
+            path = bench.RUNS / "images" / name
             if re.fullmatch(r"[0-9a-f]{16}\.jpg", name) and path.is_file():
                 self.reply(200, "image/jpeg", path.read_bytes())
             else:
                 self.reply(404, "text/plain", b"no such image")
         elif url.path == "/run" and q.get("task"):
-            self.run_relay(q)
+            self.run_mode(q)
         else:
             self.reply(404, "text/plain", b"not found")
 
@@ -91,10 +92,10 @@ class Handler(BaseHTTPRequestHandler):
             q = json.loads(self.rfile.read(size))
         except ValueError:
             return self.reply(400, "text/plain", b"body isn't JSON")
-        self.run_relay(q)
+        self.run_mode(q)
 
-    def run_relay(self, q):
-        """Stream relay events to the page as server-sent events, one per line pair."""
+    def run_mode(self, q):
+        """Stream run events to the page as server-sent events, one per line pair."""
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -105,19 +106,22 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         split = lambda v: v if isinstance(v, list) else [x for x in str(v or "").split(",") if x]
-        mode, sab = q.get("mode", "relay"), str(q.get("saboteur", ""))
+        mode = q.get("mode", "blind")
+        temp = lambda v: None if v in (None, "", "default") else float(v)  # "default": the model's own
         try:
             if mode not in MODES:
                 raise ValueError(f"unknown mode {mode!r}")
-            if mode == "vision" and q.get("format", "text") not in relay.FORMATS:
+            if mode == "vision" and q.get("format", "text") not in bench.FORMATS:
                 raise ValueError(f"unknown format {q.get('format')!r}")
-            r = relay.run(q.get("task", ""), split(q.get("chain")) or relay.DEFAULT_CHAIN.split(","), mode,
-                          q.get("rule", ""), send, saboteur=int(sab) if sab.isdigit() else None,
+            r = bench.run(q.get("task", ""), split(q.get("chain")) or bench.DEFAULT_CHAIN.split(","), mode,
+                          q.get("rule", ""), send,
                           images=q.get("images") or [q.get("image")], fmt=q.get("format", "text"),
                           combiner=q.get("combiner") or "granite4.2:8b", strategy=q.get("strategy", "batch"),
                           fields=q.get("fields") or [], rounds=int(q.get("rounds", 2) or 0),
                           ending=q.get("ending", "vote"), moderator=q.get("moderator") or "granite4.2:8b",
-                          allow_self=bool(q.get("allow_self")))
+                          allow_self=bool(q.get("allow_self")),
+                          temperature=temp(q.get("temperature", "default")),
+                          temperatures={m: temp(v) for m, v in (q.get("temps") or {}).items()})
             send({"type": "done", **{k: v for k, v in r.items() if k != "trace"}})
         except (BrokenPipeError, ConnectionResetError):
             pass  # the page was closed mid-run
@@ -128,7 +132,7 @@ class Handler(BaseHTTPRequestHandler):
         """Ask where to save a run with the Mac's own Save dialog, then write its report there.
         For browsers that can't show a save dialog themselves (Safari)."""
         rid = str(q.get("id", ""))
-        r = relay.load_run(rid)
+        r = bench.load_run(rid)
         if not r:
             return self.reply(404, "application/json", b'{"error": "no such run"}')
         script = ['-e', 'activate',  # brings the dialog to the front

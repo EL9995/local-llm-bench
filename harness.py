@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Score chains of models on a suite of questions with known answers.
+"""Score models on a suite of questions with known answers.
 
-Every case in the suite runs against every config: each model on its own (the
-baseline), the full relay chain, and optionally the chain with a saboteur at
-each layer. Code checks every answer, so no model grades another. Results go
-to runs/harness/ and a scorecard is printed at the end.
+Every case in the suite runs against every model in the chain, each on its own.
+Code checks every answer, so no model grades another. Results go to
+runs/harness/ and a scorecard is printed at the end.
 
 The orchestrator suite (a suite with "kind": "orchestrator") scores something
 else: the first model splits each task into subtasks, the rest of the chain does
@@ -14,7 +13,6 @@ same worker answers, next to each model answering the whole task alone.
 
 Run:   python3 harness.py                          (suites/basics.json, default chain)
        python3 harness.py orchestrator             (orchestrator, then workers: granite4.2:8b,gemma3:1b)
-       python3 harness.py --saboteur               (also a saboteur at each layer)
        python3 harness.py --chain granite4.2:8b,gemma3:1b --only mul,strawberry
        python3 harness.py --show runs/harness/<file>.json   (reprint a scorecard)
 """
@@ -26,10 +24,10 @@ import sys
 import time
 from pathlib import Path
 
-import relay
+import bench
 
 SUITES = Path(__file__).with_name("suites")
-OUT = relay.RUNS / "harness"
+OUT = bench.RUNS / "harness"
 NUMBER_WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
     "fifteen sixteen seventeen eighteen nineteen twenty".split())}
@@ -231,11 +229,11 @@ def run_orchestrator_suite(suite, cases, chain):
             row = {"case": case["id"], "config": cfg}
             try:
                 if cfg == "orchestrated":
-                    r = relay.run(case["prompt"], chain, "orchestrator", save=False)
+                    r = bench.run(case["prompt"], chain, "orchestrator", save=False)
                     row.update(score_orchestrated(case, r["answer"], r["subtasks"]),
                                answer=r["answer"], subtasks=r["subtasks"], planned=r["planned"])
                 else:
-                    r = relay.run(case["prompt"], [cfg.removesuffix(" alone")], "blind", save=False)
+                    r = bench.run(case["prompt"], [cfg.removesuffix(" alone")], "blind", save=False)
                     ok, fails = score_final(case, r["trace"][0]["sent"])
                     row.update({"pass": ok, "fails": fails, "answer": r["trace"][0]["sent"]})
                 row["secs"] = r["secs"]
@@ -250,7 +248,7 @@ def run_orchestrator_suite(suite, cases, chain):
             print(f"[{n:>3}/{total}] {cfg:<24} {case['id']:<12} {'✓' if row['pass'] else '✗'} "
                   f"{row['secs']:>5}s{extra}  {short}")
     return {"suite": suite["name"], "kind": "orchestrator", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "prompts": {"plan": relay.PLAN_PROMPT, "merge": relay.MERGE_PROMPT},
+            "prompts": {"plan": bench.PLAN_PROMPT, "merge": bench.MERGE_PROMPT},
             "chain": chain, "configs": cfgs, "cases": [c["id"] for c in cases],
             "secs": round(time.time() - start, 1), "results": results}
 
@@ -284,39 +282,25 @@ def report_orchestrator(rec):
 
 # ---- configs and runs ----
 
-def configs(chain, saboteur, solo=False):
-    out = [{"name": f"{m} alone", "chain": [m]} for m in chain]
-    if solo:
-        return out
-    out.append({"name": "relay", "chain": chain})
-    if saboteur:
-        out += [{"name": f"relay, saboteur L{i + 1}", "chain": chain, "saboteur": i}
-                for i in range(len(chain))]
-    return out
+def configs(chain):
+    return [{"name": f"{m} alone", "chain": [m]} for m in bench.numbered(chain)]
 
 
 def run_case(case, cfg):
-    mode = case.get("mode")
-    if mode == "cipher":
-        r = relay.run(case["prompt"], cfg["chain"], "cipher", case.get("rule", ""), save=False,
-                      cipher_name=case.get("cipher", "base64"))
-    elif len(cfg["chain"]) == 1:
-        r = relay.run(case["prompt"], cfg["chain"], "blind", case.get("rule", ""), save=False)
-        r["answer"] = r["trace"][0]["sent"]
-    else:
-        r = relay.run(case["prompt"], cfg["chain"], "relay", case.get("rule", ""), save=False,
-                      saboteur=cfg.get("saboteur"))
+    if case.get("mode") == "cipher":
+        return bench.run(case["prompt"], cfg["chain"], "cipher", case.get("rule", ""), save=False,
+                         cipher_name=case.get("cipher", "base64"))
+    r = bench.run(case["prompt"], cfg["chain"], "blind", case.get("rule", ""), save=False)
+    r["answer"] = r["trace"][0]["sent"]
     return r
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("suite", nargs="?", default="basics", help="suite name in suites/ or a path")
-    p.add_argument("--chain", help=f"models in order, top first (default {relay.DEFAULT_CHAIN}; "
-                                   f"orchestrator suite: {ORCH_CHAIN})")
-    p.add_argument("--saboteur", action="store_true", help="also run the chain with a saboteur at each layer")
+    p.add_argument("--chain", help=f"models to test, comma-separated (default {bench.DEFAULT_CHAIN}; "
+                                   f"orchestrator suite: the orchestrator, then the workers, default {ORCH_CHAIN})")
     p.add_argument("--only", help="comma-separated case ids to run")
-    p.add_argument("--solo", action="store_true", help="only test each model on its own, no relay")
     p.add_argument("--show", metavar="FILE", help="print the scorecard of a saved harness run and exit")
     p.add_argument("--rescore", metavar="FILE",
                    help="re-check a saved run's answers with the current checks, without rerunning models")
@@ -340,8 +324,8 @@ def main():
         chain = [m.strip() for m in (a.chain or ORCH_CHAIN).split(",") if m.strip()]
         save(run_orchestrator_suite(suite, cases, chain), report_orchestrator)
         return
-    chain = [m.strip() for m in (a.chain or relay.DEFAULT_CHAIN).split(",") if m.strip()]
-    cfgs = configs(chain, a.saboteur, a.solo)
+    chain = [m.strip() for m in (a.chain or bench.DEFAULT_CHAIN).split(",") if m.strip()]
+    cfgs = configs(chain)
 
     total, n, results = len(cases) * len(cfgs), 0, []
     start = time.time()
@@ -355,12 +339,10 @@ def main():
                 ok, fails = score(case, r["answer"] or "", r)
                 row = {"case": case["id"], "config": cfg["name"], "pass": ok, "fails": fails,
                        "answer": r["answer"], "intact": r.get("intact"), "secs": r["secs"],
-                       "tags": case.get("tags", []),
-                       "sabotage": (r.get("sabotage") or {}).get("outcome")}
+                       "tags": case.get("tags", [])}
             except Exception as e:  # a crash fails the case; keep going
                 row = {"case": case["id"], "config": cfg["name"], "pass": False, "fails": [f"error: {e}"],
-                       "answer": None, "secs": round(time.time() - t0, 1), "tags": case.get("tags", []),
-                       "sabotage": None}
+                       "answer": None, "secs": round(time.time() - t0, 1), "tags": case.get("tags", [])}
             results.append(row)
             short = " ".join(str(row["answer"] or "").split())[:50]
             print(f"[{n:>3}/{total}] {cfg['name']:<24} {case['id']:<13} {'✓' if row['pass'] else '✗'} "
@@ -415,11 +397,12 @@ def report(rec):
     res = rec["results"]
     by = lambda **kw: [r for r in res if all(r[k] == v for k, v in kw.items())]
     print(f"\nSCORECARD  {rec['suite']} · {len(rec['cases'])} cases · {rec['secs'] / 60:.1f} min\n")
-    print(f"{'config':<26} {'correct':>9} {'avg time':>9}  saboteur")
+    print(f"{'config':<26} {'correct':>9} {'avg time':>9}" +
+          ("  saboteur" if any(r.get("sabotage") for r in res) else ""))  # saved Relay-era runs had one
     for name in rec["configs"]:
         rows = by(config=name)
         right = sum(r["pass"] for r in rows)
-        sab = [r["sabotage"] for r in rows if r["sabotage"]]
+        sab = [r["sabotage"] for r in rows if r.get("sabotage")]
         sab_txt = (f"caught {sab.count('caught')}, slipped {sab.count('slipped')}, "
                    f"didn't lie {sab.count('no_lie')}") if sab else ""
         avg = sum(r["secs"] for r in rows) / max(len(rows), 1)
