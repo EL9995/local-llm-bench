@@ -1,28 +1,36 @@
-# Model Relay
+# Local LLM Bench
 
-Chain local Ollama models into a relay: a frontier model (Claude, ChatGPT) or a person
-hands a task down through progressively smaller models on one 16 GB Mac, and each layer
-checks the answer on the way back up.
+A test bench for small local LLMs on one 16 GB Mac. The same question goes to several Ollama models
+at once: each alone, chained into a relay that rewrites and checks the task, or around a table where
+they discuss and vote. Photos too: several vision models read one image, field by field. A harness
+scores every setup against questions with known answers, checked by code, not by another model.
 
-```
-Frontier → 8–14B → 3–4B → 1B → (answer) → back up, checked at each layer
-```
+![The relay answering "Steel" to "Which is heavier, a kilogram of feathers or a kilogram of steel?", with every layer passing the wrong answer up](docs/images/relay-feathers.png)
 
-The point is the plumbing and the limits, not solving problems.
+*Relay mode on "Which is heavier, a kilogram of feathers or a kilogram of steel?" The task is
+rewritten three times on the way down and loses the trick; gemma3:1b answers "Steel", and every
+layer passes it up unchanged.*
+
+**Finding: every model alone matched or beat the 4-model relay** (22 questions: three models 20/22
+alone, the smallest 17/22, the relay 17/22 at 15 s per question). Tracing the misses showed two causes:
+
+- **Rewrites strip reasoning.** The top layer tells the others to output only the number, so
+  nobody can work out 17 × 23. Each of those models gets 391 alone.
+- **Rewrites drop the trick, and checkers rubber-stamp.** The feathers question above became
+  "Report which is heavier", and the checkers approved "Steel", including granite4.2:8b, which
+  answers it correctly alone.
+
+Details and more results are in [Findings so far](#findings-so-far-2026-10-10-m5-air-16-gb).
+
+**Quick start** (needs the [Ollama](https://ollama.com) app running and the models pulled; no Python
+packages): `python3 server.py`, then open http://localhost:8765. Or `python3 relay.py --blind "2+2"`
+from the command line, or `python3 harness.py` to score the default chain. More under [Run](#run)
+and [Harness](#harness).
 
 ## Modes
 
-- **Relay**: each layer rewrites the task for the model below, the bottom one answers, and each
-  layer checks the answer on the way back up. **Saboteur** (chaos option) makes one layer secretly
-  plant a believable wrong answer; the run records whether a layer above caught it.
-- **Blind**: every model gets the prompt word for word and answers on its own.
-- **Cipher**: a secret message goes down the chain. Each layer decodes it and re-encodes it for the
-  next (base64, ROT13, Caesar +3, reverse, or a different one each hop). The tool knows the ciphers,
-  so every step is checked exactly and the run shows where the message first broke.
-
-- **Translate**: a telephone game. Each layer translates the text into its language (picked per
-  position in the chain); the last one always translates back to English, shown next to the original
-  with a rough word-match score. Text in clearly the wrong writing system is flagged.
+- **Blind**: every model gets the prompt word for word and answers on its own, side by side. This
+  is the baseline the other modes are measured against.
 
 - **Vision**: drop in a photo. Every model in the chain that can see images (gemma3:4b and the
   gemma4 models) extracts its text on its own, as plain text, Markdown or JSON with labeled fields.
@@ -41,6 +49,15 @@ The point is the plumbing and the limits, not solving problems.
   then picks each field's most common answer, so nothing is made up at that step. The result is a
   grid of every model's answer per field, with the ones that differ from the majority highlighted,
   so you can see how each model performed.
+
+- **Relay**: a frontier model (Claude, ChatGPT) or a person hands a task down through progressively
+  smaller models. Each layer rewrites the task for the model below, the bottom one answers, and each
+  layer checks the answer on the way back up. **Saboteur** (chaos option) makes one layer secretly
+  plant a believable wrong answer; the run records whether a layer above caught it.
+
+  ```
+  Frontier → 8–14B → 3–4B → 1B → (answer) → back up, checked at each layer
+  ```
 
 - **Roundtable**: every model answers on its own (round 0), then they discuss in one shared
   conversation for a few rounds; each turn sees everything said so far. Each model says whether it
@@ -61,8 +78,6 @@ python3 relay.py --json "2+2"
 python3 relay.py --blind "How many r's are in strawberry?"   # every model answers on its own
 python3 relay.py --rule "Answer with just the number." "2+2"  # a rule every model must follow
 python3 relay.py --saboteur 4 "What is 7 times 8?"           # layer 4 plants a wrong answer
-python3 relay.py --cipher mix "meet at noon"                  # pass a secret message down
-python3 relay.py --translate Spanish,Japanese,French "Break a leg tonight!"  # translation telephone
 ```
 
 To watch it run, start the web page and open http://localhost:8765:
@@ -87,7 +102,8 @@ their own Save dialog; in Safari the server opens the Mac's Save dialog instead.
 ## Harness
 
 `harness.py` scores configurations on a suite of questions with known answers
-(`suites/basics.json`: math, letter counting, facts, trick questions, rule-following, ciphers).
+(`suites/basics.json`: math, letter counting, facts, trick questions, rule-following, and passing a
+base64 or ROT13 message down the chain, which only the harness does).
 Each case runs against every model alone, the full relay, and with `--saboteur` the relay with a
 saboteur at each layer. Code checks each answer (a number, a phrase, a regex, a word limit, or a
 cipher message arriving intact), so no model grades another. Results go to `runs/harness/`.
@@ -107,15 +123,8 @@ python3 harness.py --show runs/harness/<file>.json   # reprint a scorecard
 - Forcing JSON output on `gemma3:1b` sent it into a loop; the bottom layer replies in plain
   text, and every reply is capped at 200 tokens.
 - `gemma4:e2b` / `e4b` are 7.5 / 9.5 GB on disk, so they're not light layers.
-- Caesar cipher: no model could encode or decode it. base64: only the granite models decoded it;
-  the gemma models made up plausible phrases ("hello world"). In a mixed-cipher relay
-  "meet at noon" arrived at the bottom as "hello", first broken by granite4.2:8b's ROT13.
 - Saboteur at the bottom of "What is 7 times 8?" planted "15". granite4.2:3b approved it;
   gemma3:4b, one layer up, caught it and restored 56.
-- Translate, English → Spanish → Japanese → Korean → English: "It's raining cats and dogs, so let's
-  call it a day" came back as "The rain is falling, so let's spend one day". granite4.2:8b knew the
-  Spanish idiom for raining cats and dogs but translated "call it a day" literally; granite4.2:3b
-  was asked for Korean and copied the Japanese instead.
 - First harness run (2026-10-11, 22 cases, 28 min): every model alone beat or matched the 4-model
   relay. granite4.2:8b, gemma3:4b and granite4.2:3b scored 20/22 alone, gemma3:1b 17/22, the relay
   17/22 at 15 s per question. Two causes, from tracing the misses:
@@ -162,3 +171,12 @@ python3 harness.py --show runs/harness/<file>.json   # reprint a scorecard
   7/7; glm-ocr 6/7 (it made up a phone number); granite3.2-vision:2b 4/7 (wrong subtotal and
   total); llava:7b 0/7 ("Male Street Cafe", invented items and prices). deepseek-ocr:3b transcribed
   it perfectly but only follows its "Free OCR." command, so it can't fill in fields.
+
+## How it was made
+
+This project was **built with AI under my direction.** Claude (Anthropic's AI coding assistant)
+wrote the code. I set the direction, chose the models, designed the experiments and the harness
+questions, ran them on my Mac, and reviewed every change before it was saved.
+
+The git history shows the path: a single relay script first (the project started as "Model Relay"),
+then each mode, the web page, the harness, and the fixes that came out of reading the traces.

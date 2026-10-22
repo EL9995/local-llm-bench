@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Model Relay</title>
+<title>Local LLM Bench</title>
 <style>
   :root {
     --bg: #f6f5f1; --surface: #ffffff; --ink: #1d1d1b; --muted: #6b6a64; --line: #e2e0d8;
@@ -90,8 +90,6 @@
   @media (prefers-reduced-motion: reduce) { .row, .row.lifted { transition: none; } }
   .row:focus-visible { outline-offset: 1px; }
   #add { width: 100%; margin-top: 8px; }
-  .row .lang { font-size: 12px; padding: 2px 4px; max-width: 108px; }
-  .row .fixed-lang { font-size: 12px; color: var(--muted); padding-right: 4px; }
   .row.off { opacity: .55; }
   .row .eye { font-size: 11px; color: var(--teal); padding-right: 4px; white-space: nowrap; }
   .row.off .eye { color: var(--muted); }
@@ -153,8 +151,6 @@
           border: 1px solid var(--line); }
   .agree { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin-top: 8px; font-size: 13px; }
   .agree span:nth-child(odd) { font-family: var(--mono); }
-  .route { font-size: 13px; line-height: 1.7; }
-  .route b { font-weight: 600; color: var(--violet); }
   .pbtns { display: flex; gap: 6px; margin-top: 10px; }
   .compare { display: grid; gap: 8px; margin-top: 10px; }
   .compare div { padding: 8px 12px; border-radius: 8px; background: var(--bg); }
@@ -196,9 +192,7 @@
   .tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
          background: var(--accent-soft); color: var(--accent); align-self: center; }
   .tag.blind { background: var(--up-soft); color: var(--up); }
-  .tag.cipher { background: var(--warn-soft); color: var(--warn); }
   .tag.sab { background: var(--bad-soft); color: var(--bad); }
-  .tag.translate { background: var(--violet-soft); color: var(--violet); }
   .tag.vision { background: var(--teal-soft); color: var(--teal); }
   .tag.roundtable { background: var(--pink-soft); color: var(--pink); }
 
@@ -290,13 +284,11 @@
 <body>
 <header>
   <div class="bar">
-    <h1>Model Relay</h1>
+    <h1>Local LLM Bench</h1>
     <div class="tabs" role="tablist" aria-label="Mode">
-      <button type="button" role="tab" data-mode="relay">Relay</button>
       <button type="button" role="tab" data-mode="blind">Blind</button>
-      <button type="button" role="tab" data-mode="cipher">Cipher</button>
-      <button type="button" role="tab" data-mode="translate">Translate</button>
       <button type="button" role="tab" data-mode="vision">Vision</button>
+      <button type="button" role="tab" data-mode="relay">Relay</button>
       <button type="button" role="tab" data-mode="roundtable">Roundtable</button>
     </div>
   </div>
@@ -368,26 +360,6 @@
       <select id="add" aria-label="Add a model"></select>
       <p class="mem" id="mem"></p>
     </section>
-    <section class="panel" id="cipherPanel" hidden>
-      <div class="phead"><h2>Cipher</h2></div>
-      <p class="phint">How the message is encoded at each step down.</p>
-      <select id="cipher" style="width:100%">
-        <option value="base64">base64</option>
-        <option value="rot13">ROT13</option>
-        <option value="caesar">Caesar +3</option>
-        <option value="reverse">Reverse</option>
-        <option value="mix">Mix: a different cipher each step</option>
-      </select>
-    </section>
-    <section class="panel" id="translatePanel" hidden>
-      <div class="phead"><h2>Route</h2></div>
-      <p class="phint">Pick each model's language in the chain above. The last one always translates back to English.</p>
-      <div class="route" id="route"></div>
-      <div class="pbtns">
-        <button type="button" class="ghost" id="shuffle">Shuffle</button>
-        <button type="button" class="ghost" id="resetRoute">Reset</button>
-      </div>
-    </section>
     <section class="panel" id="visionPanel" hidden>
       <div class="phead"><h2>Vision</h2></div>
       <p class="phint">Each model that can see images reads the photo on its own. The final agent combines what they found, then does what you typed, if anything.</p>
@@ -449,10 +421,8 @@ const el = (tag, cls, text) => {
 };
 let installed = [], unusable = [], chain = [], ramGb = 0, running = false, openId = null;
 let shownId = null;  // the saved run on screen, which "Save run" saves
-let current = "relay", saboteur = null;
-let languages = [], defaultRoute = [], route = [];  // route: one language per position, not per model  // saboteur is a model name, so it follows the model when you reorder
+let current = "blind", saboteur = null;  // saboteur is a model name, so it follows the model when you reorder
 const gb = name => (installed.find(m => m.name === name) || {}).gb || 0;
-const CNAME = { base64: "base64", rot13: "ROT13", caesar: "Caesar +3", reverse: "reverse", mix: "mix" };
 
 function warn(text) { $("#banner").textContent = text; $("#banner").classList.toggle("show", !!text); }
 
@@ -548,12 +518,6 @@ const MODES = {
   blind: { hint: "Every model gets your prompt word for word and answers on its own. None sees another's answer.",
            placeholder: "Ask something… e.g. How many r's are in strawberry?",
            chain: "The models answer one at a time, in this order. Drag to reorder." },
-  cipher: { hint: "Your message is encoded and passed down. Each model decodes it and re-encodes it for the next, and the tool checks every step.",
-            placeholder: "A secret message… e.g. meet at noon",
-            chain: "Top to bottom. Drag to reorder." },
-  translate: { hint: "Each model translates the text into its language, then hands it on. The last one translates back to English so you can compare.",
-               placeholder: "Something to translate… e.g. Break a leg tonight, it'll be a piece of cake.",
-               chain: "Top to bottom. Each model translates into the language beside it. Drag to reorder; the languages stay in place." },
   roundtable: { hint: "Every model answers on its own, then they discuss in one shared conversation. At the end they vote on the best answer, a moderator sums up, or both.",
                 placeholder: "A question to discuss… e.g. How many times does the letter r appear in strawberry?",
                 chain: "Speaking order, top to bottom. Every message switches models, so small ones that fit in memory together keep it fast." },
@@ -667,8 +631,6 @@ function setMode(m) {
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.mode === m));
   $("#hint").textContent = MODES[m].hint;
   $("#task").placeholder = MODES[m].placeholder;
-  $("#cipherPanel").hidden = m !== "cipher";
-  $("#translatePanel").hidden = m !== "translate";
   $("#visionPanel").hidden = m !== "vision";
   $("#roundPanel").hidden = m !== "roundtable";
   $("#imgzone").hidden = m !== "vision";
@@ -694,8 +656,6 @@ let settling = false;
 function renderChain() {
   saveChains();
   $("#chainHint").textContent = MODES[current].chain;
-  while (route.length < chain.length - 1) route.push(defaultRoute[route.length % defaultRoute.length] || "Spanish");
-  renderRoute();
   const list = $("#chain"), before = {};
   list.querySelectorAll(".row").forEach(r => before[r.dataset.name] = r.getBoundingClientRect().top);
   list.replaceChildren();
@@ -709,15 +669,6 @@ function renderChain() {
     if (current === "vision") {
       if (!sees) row.classList.add("off");
       row.append(el("span", "eye", sees ? "reads" : "can't see images"));
-    } else if (current === "translate") {
-      if (i === chain.length - 1) row.append(el("span", "fixed-lang", "→ English"));
-      else {
-        const sel = el("select", "lang"); sel.setAttribute("aria-label", `Language for layer ${i + 1}`);
-        languages.forEach(l => { const o = el("option", null, l); o.value = l; sel.append(o); });
-        sel.value = route[i];
-        sel.onchange = () => { route[i] = sel.value; renderRoute(); };
-        row.append(sel);
-      }
     } else if (current === "relay") {
       const s = el("button", "sabbtn", "Saboteur"); s.type = "button";
       s.setAttribute("aria-pressed", name === saboteur);
@@ -770,17 +721,6 @@ function renderCombiner(pick) {
   renderStrategy();
 }
 $("#add").onchange = e => { if (e.target.value) { chain.push(e.target.value); renderChain(); } };
-const routeNow = () => [...route.slice(0, chain.length - 1), "English"];
-function renderRoute() {
-  const box = $("#route"); box.replaceChildren(el("span", null, "English"));
-  routeNow().forEach(l => { box.append(" → "); box.append(el("b", null, l)); });
-}
-$("#shuffle").onclick = () => {
-  const pool = [...languages].sort(() => Math.random() - 0.5);
-  route = route.map((_, i) => pool[i % pool.length]);
-  renderChain();
-};
-$("#resetRoute").onclick = () => { route = []; renderChain(); };
 $("#sortBig").onclick = () => { chain.sort((a, b) => gb(b) - gb(a)); renderChain(); };
 $("#flip").onclick = () => { chain.reverse(); renderChain(); };
 
@@ -823,7 +763,7 @@ function drag(e, row, from) {
 
 // ---- the stage: You at the top, one card per model, a wire above each card ----
 let nodes = [], wires = [], you, planted = null;
-function renderStage(task, rule, runChain, runMode, sabLayer, langs = [], imgUrls = [], roles = null) {
+function renderStage(task, rule, runChain, runMode, sabLayer, imgUrls = [], roles = null) {
   room = null;
   const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = []; planted = null;
   const bar = el("div", "stagebar");
@@ -842,19 +782,17 @@ function renderStage(task, rule, runChain, runMode, sabLayer, langs = [], imgUrl
   }
   if (task || runMode !== "vision") {
     const m = el("div", "msg down show");
-    m.append(lbl({ cipher: "Secret message", vision: "For the final agent" }[runMode] || "Prompt"), el("div", "txt", task));
+    m.append(lbl({ vision: "For the final agent" }[runMode] || "Prompt"), el("div", "txt", task));
     you.append(m);
   }
-  you.enc = el("div", "msg down"); you.answer = el("div", "msg up");
-  you.append(you.enc, you.answer);
+  you.answer = el("div", "msg up");
+  you.append(you.answer);
   stage.append(you);
 
   runChain.forEach((name, i) => {
     const w = el("div", "wire"); w.append(el("i")); wires.push(w); stage.append(w);
     const bottom = i === runChain.length - 1;
     const role = roles?.[i] ?? { relay: bottom ? "answers" : "rewrites ↓ · checks ↑", blind: "answers on its own",
-                   cipher: bottom ? "decodes" : "decodes · re-encodes ↓",
-                   translate: bottom ? "translates back to English" : `translates into ${langs[i]}`,
                    vision: bottom ? "combines the readings" : "reads the photo" }[runMode];
     const n = el("div", "node");
     const head = el("div", "head");
@@ -913,7 +851,7 @@ function renderRoom(task, rule, models) {
   you.append(h);
   if (rule) { const r = el("div", "msg down show"); r.append(lbl("Rule for every model"), el("div", "txt", rule)); you.append(r); }
   const m = el("div", "msg down show"); m.append(lbl("Question for the table"), el("div", "txt", task)); you.append(m);
-  you.enc = el("div", "msg down"); you.answer = el("div", "msg up"); you.append(you.answer);
+  you.answer = el("div", "msg up"); you.append(you.answer);
   room = { box: el("div", "room"), colors: {}, last: null, typing: el("div", "typing") };
   models.forEach((name, i) => room.colors[name] = `var(${WHO[i % WHO.length]})`);
   room.typing.hidden = true;
@@ -978,22 +916,16 @@ function busy(i, text) {
   nodes[i].classList.add("active"); nodes[i].status.textContent = text;
   nodes[i].scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
-const mark = ok => ok === true ? "✓" : ok === false ? "✗" : "?";
 
 function handle(e) {
   if (room && (e.type === "call" || e.type === "step")) return roomHandle(e);
   const n = nodes[e.layer];
-  if (e.type === "start") {
-    fill(you.enc, `Encoded by the tool · ${CNAME[e.cipher]}`, null, e.sent, { code: true });
-  } else if (e.type === "call") {
+  if (e.type === "call") {
     const sab = n.classList.contains("sab");
     if (e.dir === "down") { flow(e.layer, "down"); busy(e.layer, "rewriting the task…"); }
     if (e.dir === "answer") { flow(e.layer, "down"); busy(e.layer, sab ? "plotting…" : "answering…"); }
     if (e.dir === "up") { flow(e.layer + 1, "up"); busy(e.layer, sab ? "plotting…" : "checking the answer…"); }
     if (e.dir === "solo") { flow(e.layer, "down"); busy(e.layer, "answering…"); }
-    if (e.dir === "decode") { flow(e.layer, "down"); busy(e.layer, "decoding…"); }
-    if (e.dir === "encode") { busy(e.layer, "encoding for the next model…"); }
-    if (e.dir === "translate") { flow(e.layer, "down"); busy(e.layer, `translating into ${e.lang}…`); }
     if (e.dir === "extract") { flow(e.layer, "down"); busy(e.layer, `reading ${photoName(e.photo)}…`); }
     if (e.dir === "combine") { flow(e.layer, "down"); busy(e.layer, `combining the readings of ${photoName(e.photo)}…`); }
     if (e.dir === "act") { flow(e.layer, "down"); busy(e.layer, "doing what you asked…"); }
@@ -1039,22 +971,6 @@ function handle(e) {
       n.status.textContent = "done";
     }
     if (e.dir === "act") { addMsg(n, "up", "→ did what you asked", meta + when, e.sent); n.status.textContent = "done"; }
-    if (e.dir === "translate") {
-      fill(n.down, `→ ${e.lang}`, meta, e.sent,
-           { notes: [!e.script_ok && `This doesn't look like ${e.lang}.`], tone: !e.script_ok && "bad" });
-      n.status.textContent = "done";
-    }
-    if (e.dir === "decode" || e.dir === "encode") {
-      const notes = [
-        e.ok === false && `Should be: ${e.want}`,
-        e.ok == null && `What it got isn't valid ${CNAME[e.cipher]}, so there's no right answer to check against.`,
-        e.extra && "Added commentary after the answer; only the first paragraph was kept.",
-      ];
-      const box = e.dir === "decode" ? n.down : n.up;
-      const label = e.dir === "decode" ? `◇ decoded ${CNAME[e.cipher]} ${mark(e.ok)}` : `◆ encoded as ${CNAME[e.cipher]} ${mark(e.ok)}`;
-      fill(box, label, meta, e.sent, { code: e.dir === "encode", notes, tone: e.ok === false && "bad" });
-      n.status.textContent = e.dir === "decode" ? `decoded ${mark(e.ok)}` : `encoded ${mark(e.ok)}`;
-    }
     flow(null); busy(null);
   } else if (e.type === "done") {
     finish(e);
@@ -1113,23 +1029,6 @@ function finish(e) {
     if (e.first_result != null)
       parts.push(el("div", "verdict", `${count > 1 ? STRAT[e.strategy].name + " · " : ""}first result at ${e.first_result}s · all done at ${e.secs}s · ${e.load_secs}s loading models`));
     parts.push(el("div", "stats", `${count} photo${count > 1 ? "s" : ""} · ${e.calls} model calls · final agent: ${e.combiner}`));
-  } else if (e.mode === "translate") {
-    const pct = Math.round(e.match * 100);
-    const [text, tone] = pct >= 70 ? ["Mostly survived", "good"] : pct >= 35 ? ["Drifted", ""] : ["Lost in translation", "bad"];
-    const cmp = el("div", "compare");
-    const side = (label, t) => { const d = el("div"); d.append(el("small", null, label), el("div", "txt", t)); return d; };
-    cmp.append(side("You wrote", e.task), side("Came back as", e.answer));
-    parts.push(lbl("Back in English"), cmp,
-      el("div", "verdict " + tone, `${text} · ${pct}% of the wording matches`),
-      el("div", "stats", "The match only counts shared words, so a good paraphrase can still score low. Compare them yourself."),
-      el("div", "stats", `${e.secs}s · route: English → ${e.langs.join(" → ")}`));
-  } else if (e.mode === "cipher") {
-    const b = e.broke_at;
-    parts.push(lbl("Message at the bottom"), el("div", "final", e.answer || "(nothing)"),
-      el("div", "verdict " + (e.intact ? "good" : "bad"), e.intact ? "Arrived intact ✓" : "Didn't survive ✗"));
-    if (b) parts.push(el("div", "stats", `First mistake: layer ${b.layer + 1} (${b.model}) ${b.dir === "decode" ? "decoding" : "encoding"} ${CNAME[b.cipher]}` +
-                                          (e.intact ? ", but the message still made it" : "")));
-    parts.push(el("div", "stats", `${e.secs}s · ${e.calls} model calls · ciphers: ${e.ciphers.map(c => CNAME[c]).join(" → ")}`));
   } else {
     parts.push(lbl("Final answer"), el("div", "final", e.answer));
     const s = e.sabotage;
@@ -1169,11 +1068,10 @@ async function run(task) {
   const readers = chain.filter(n => (installed.find(x => x.name === n) || {}).vision);
   if (m === "vision") {
     const cards = visionCards(readers, $("#format").value, $("#combiner").value, !!task);
-    renderStage(task, rule, cards.names, m, null, [], images.map(i => i.url), cards.roles);
+    renderStage(task, rule, cards.names, m, null, images.map(i => i.url), cards.roles);
   } else if (m === "roundtable") renderRoom(task, rule, chain);
-  else renderStage(task, rule, chain, m, sab, routeNow());
-  const params = { task, chain: chain.join(","), mode: m, rule, cipher: $("#cipher").value, saboteur: sab ?? "",
-                   langs: route.slice(0, chain.length - 1).join(","),
+  else renderStage(task, rule, chain, m, sab);
+  const params = { task, chain: chain.join(","), mode: m, rule, saboteur: sab ?? "",
                    ...(m === "vision" ? { images: images.map(i => i.b64), format: $("#format").value,
                                           combiner: $("#combiner").value, strategy,
                                           fields: fieldSpec.filter(f => f.name.trim()) } : {}),
@@ -1249,7 +1147,6 @@ $("#saveRun").onclick = saveRun;
 
 // ---- saved runs ----
 function summary(r) {
-  if (r.mode === "cipher") return `${CNAME[r.cipher] || r.cipher} · ${r.intact ? "intact" : "broke"} → ${r.answer}`;
   if (r.mode === "blind") return `${r.calls} answers`;
   if (r.mode === "vision") {
     const count = (r.images || [r.image]).length;
@@ -1259,13 +1156,13 @@ function summary(r) {
     const w = r.winners || [];
     return `${r.rounds} round${r.rounds === 1 ? "" : "s"} · ` + (w.length === 1 ? `winner ${w[0]}` : w.length ? "tie" : r.ending) + ` → ${r.answer}`;
   }
-  if (r.mode === "translate") return `${(r.langs || []).join(" → ")} · ${Math.round(r.match * 100)}% match → ${r.answer}`;
   const s = r.sabotage;
   return `→ ${r.answer}` + (s ? ` · saboteur ${{ caught: "caught", slipped: "slipped through", no_lie: "didn't lie" }[s.outcome]}` : "");
 }
 async function loadHistory() {
   let runs = [];
   try { runs = await (await fetch("/runs")).json(); } catch { return; }
+  runs = runs.filter(r => MODES[r.mode]);  // runs from modes this page no longer has
   $("#hcount").textContent = `(${runs.length})`;
   const list = $("#hlist");
   if (!runs.length) return list.replaceChildren(el("li", "empty", "Nothing yet. Every run you do is saved here."));
@@ -1289,8 +1186,6 @@ async function openRun(id) {
   // put the run back in the form so Run repeats it
   $("#task").value = r.task; $("#rule").value = r.rule || "";
   grow($("#task"), 260); grow($("#rule"), 120);
-  if (r.cipher) $("#cipher").value = r.cipher;
-  if (r.langs) route = r.langs.slice(0, -1);
   if (r.format) setFormat(r.format);
   if (r.mode === "roundtable") {
     $("#rounds").value = String(r.rounds); ending = r.ending || "vote"; $("#allowSelf").checked = !!r.allow_self;
@@ -1310,23 +1205,21 @@ async function openRun(id) {
   if (!missing.length) { chain = [...r.chain]; renderChain(); }
   if (r.mode === "vision") {
     const cards = visionCards(r.readers, r.format, r.combiner, r.answer !== r.combined);
-    renderStage(r.task, r.rule, cards.names, r.mode, null, [], imgUrls, cards.roles);
+    renderStage(r.task, r.rule, cards.names, r.mode, null, imgUrls, cards.roles);
   } else if (r.mode === "roundtable") { renderRoom(r.task, r.rule, r.chain); renderRoundPanel(); }
-  else renderStage(r.task, r.rule, r.chain, r.mode, r.saboteur ?? null, r.langs);
-  if (r.mode === "cipher") handle({ type: "start", cipher: r.ciphers[0], sent: r.encoded });
+  else renderStage(r.task, r.rule, r.chain, r.mode, r.saboteur ?? null);
   const honest = r.sabotage?.outcome === "no_lie";  // older runs didn't record "lied" per step
   r.trace.forEach(t => handle({ type: "step", ...t, ...(t.sabotage && t.lied === undefined ? { lied: !honest } : {}) }));
   finish(r);
   loadHistory();
 }
 
-setMode("relay");
+setMode("blind");
 fetch("/models").then(r => r.json()).then(d => {
   if (d.error) return warn(d.error);
   // every mode needs models that write text; others (e.g. classifiers) are left out, with a note
   installed = d.models.filter(m => m.text !== false); ramGb = d.ram_gb || 0;
   unusable = d.models.filter(m => m.text === false).map(m => m.name);
-  languages = d.languages || []; defaultRoute = d.route || [];
   defaultChain = d.default.filter(n => installed.some(m => m.name === n));
   try { chains = JSON.parse(localStorage.getItem(CHAINS_KEY)) || {}; } catch { chains = {}; }
   chain = chainFor(current);

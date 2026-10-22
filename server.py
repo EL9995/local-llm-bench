@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local web page for the relay: type a task, watch it travel down the chain and back up.
-Also runs blind, cipher, translate and vision (read an image, then hand the text on) modes.
+Also runs blind, vision (read a photo, then hand the text on) and roundtable modes.
 
 Run:   python3 server.py        then open http://localhost:8765
 """
@@ -44,8 +44,7 @@ class Handler(BaseHTTPRequestHandler):
                 models = [{"name": m["name"], "gb": round(m["size"] / 1e9, 1), "vision": "vision" in c,
                            "tools": "tools" in c, "text": "completion" in c or not c}  # unknown: assume it writes text
                           for m, c in zip(tags, found)]
-                body = {"models": models, "default": relay.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
-                        "languages": relay.LANGUAGES[:-1], "route": relay.DEFAULT_ROUTE}
+                body = {"models": models, "default": relay.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB}
             except OSError as e:
                 body = {"error": f"Can't reach Ollama at {relay.OLLAMA}. Is the app running? ({e})"}
             self.reply(200, "application/json", json.dumps(body).encode())
@@ -104,15 +103,14 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         split = lambda v: v if isinstance(v, list) else [x for x in str(v or "").split(",") if x]
-        mode, cipher, sab = q.get("mode", "relay"), q.get("cipher", "base64"), str(q.get("saboteur", ""))
+        mode, sab = q.get("mode", "relay"), str(q.get("saboteur", ""))
         try:
-            if mode == "cipher" and cipher not in [*relay.CIPHERS, "mix"]:
-                raise ValueError(f"unknown cipher {cipher!r}")
+            if mode not in ("relay", "blind", "vision", "roundtable"):
+                raise ValueError(f"unknown mode {mode!r}")
             if mode == "vision" and q.get("format", "text") not in relay.FORMATS:
                 raise ValueError(f"unknown format {q.get('format')!r}")
             r = relay.run(q.get("task", ""), split(q.get("chain")) or relay.DEFAULT_CHAIN.split(","), mode,
                           q.get("rule", ""), send, saboteur=int(sab) if sab.isdigit() else None,
-                          cipher_name=cipher, route=split(q.get("langs")),
                           images=q.get("images") or [q.get("image")], fmt=q.get("format", "text"),
                           combiner=q.get("combiner") or "granite4.2:8b", strategy=q.get("strategy", "batch"),
                           fields=q.get("fields") or [], rounds=int(q.get("rounds", 2) or 0),
@@ -163,5 +161,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Model Relay UI on http://localhost:{PORT}  (Ctrl+C to stop)")
+    print(f"Local LLM Bench on http://localhost:{PORT}  (Ctrl+C to stop)")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

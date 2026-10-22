@@ -15,7 +15,6 @@ from pathlib import Path
 
 import relay
 
-CNAME = {"base64": "base64", "rot13": "ROT13", "caesar": "Caesar +3", "reverse": "reverse", "mix": "mix"}
 FMT = {"text": "plain text", "markdown": "Markdown", "json": "JSON", "fields": "custom fields"}
 STRAT = {"together": "all at once", "batch": "batch", "stream": "photo by photo"}
 
@@ -32,9 +31,9 @@ def blocks(r):
            ("meta", [("Mode", mode.title()), ("When", r.get("time", "").replace("T", " ")),
                      ("Models", " → ".join(r["chain"])), ("Took", f"{r['secs']} s, {r['calls']} model calls")]
             + ([("Rule for every model", r["rule"])] if r.get("rule") else []))]
-    out += {"relay": relay_blocks, "blind": blind_blocks, "cipher": cipher_blocks, "translate": translate_blocks,
-            "vision": vision_blocks, "roundtable": roundtable_blocks}.get(mode, steps_blocks)(r)
-    out.append(("note", f"Saved run {r.get('id', '')} · Model Relay"))
+    out += {"relay": relay_blocks, "blind": blind_blocks, "vision": vision_blocks,
+            "roundtable": roundtable_blocks}.get(mode, steps_blocks)(r)
+    out.append(("note", f"Saved run {r.get('id', '')} · Local LLM Bench"))
     return out
 
 
@@ -67,31 +66,6 @@ def blind_blocks(r):
     out = [("h2", "Each model's answer, on its own")]
     for t in r["trace"]:
         out.append(("text", f"{t['model']} ({meta(t)})", t["sent"]))
-    return out
-
-
-def cipher_blocks(r):
-    mark = {True: "✓", False: "✗", None: "?"}
-    out = [("h2", "Result"), ("p", ("Arrived intact." if r.get("intact") else "Didn't survive.")
-                                    + f" Ciphers: {' → '.join(CNAME[c] for c in r['ciphers'])}."),
-           ("text", "The secret message", r["task"]), ("text", f"Encoded by the tool ({CNAME[r['ciphers'][0]]})", r["encoded"]),
-           ("text", "What arrived at the bottom", r["answer"]), ("h2", "Step by step")]
-    for t in r["trace"]:
-        body = t["sent"] + (f"\n\nShould be: {t['want']}" if t.get("ok") is False else "")
-        verb = "decoded" if t["dir"] == "decode" else "encoded as"
-        out.append(("text", f"Layer {t['layer'] + 1} · {t['model']} {verb} {CNAME[t['cipher']]} {mark[t.get('ok')]}", body))
-    return out
-
-
-def translate_blocks(r):
-    out = [("h2", "Result"),
-           ("table", ["You wrote", "Came back as"], [[r["task"], r["answer"]]]),
-           ("p", f"Route: English → {' → '.join(r['langs'])}. About {round(r['match'] * 100)}% of the wording "
-                 "survived (a rough word match; a good paraphrase can score low)."),
-           ("h2", "Step by step")]
-    for t in r["trace"]:
-        flag = "" if t.get("script_ok", True) else " (doesn't look like it)"
-        out.append(("text", f"{t['model']} → {t['lang']}{flag} ({meta(t)})", t["sent"]))
     return out
 
 
