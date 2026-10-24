@@ -196,6 +196,9 @@
   .stratfield[hidden] { display: none; }
   .extract .field { margin-bottom: 0; }
   .strat.fmt button[aria-pressed=true] { background: var(--accent); }
+  .fmtgroups { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 1.4fr); gap: 10px; }
+  .fmtgroup small { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  @media (max-width: 560px) { .fmtgroups { grid-template-columns: minmax(0, 1fr); } }
   .fieldsbox { border-top: 1px solid var(--line); margin: 12px 0 0; padding-top: 12px; }
   #fieldList { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 10px; }
   .fieldsbox[hidden] { display: none; }
@@ -439,12 +442,21 @@
       <input type="file" id="imgfile" accept="image/*" multiple hidden>
     </div>
     <div class="extract" id="extractBox">
-    <div class="field"><span>What to pull out of the photo</span>
-      <div class="strat fmt" role="group" aria-label="What to pull out of the photo">
-        <button type="button" data-format="text">All text</button>
-        <button type="button" data-format="markdown">Markdown</button>
-        <button type="button" data-format="json">JSON</button>
-        <button type="button" data-format="fields">Custom fields</button>
+    <div class="field"><span>What to do with the photo</span>
+      <div class="fmtgroups">
+        <div class="fmtgroup"><small>Read the text</small>
+          <div class="strat fmt" role="group" aria-label="Read the text">
+            <button type="button" data-format="text">All text</button>
+            <button type="button" data-format="markdown">Markdown</button>
+            <button type="button" data-format="json">JSON</button>
+            <button type="button" data-format="fields">Custom fields</button>
+          </div>
+        </div>
+        <div class="fmtgroup"><small>Ask about the photo</small>
+          <div class="strat fmt" role="group" aria-label="Ask about the photo">
+            <button type="button" data-format="ask">Your prompt</button>
+          </div>
+        </div>
       </div>
       <input type="hidden" id="format" value="text">
       <p class="shint" id="fmtHint"></p>
@@ -579,6 +591,8 @@ const el = (tag, cls, text) => {
 };
 let installed = [], unusable = [], chain = [], ramGb = 0, running = false, openId = null;
 let serverModes = null;  // the modes server.py says it runs
+let serverFormats = null;  // and the Vision options it knows
+const RESTART = "server.py is older than this page. Restart it: Ctrl+C in its terminal, then python3 server.py";
 let current = "blind";
 // a model can be in a chain more than once: repeats are labeled "gemma3:1b #2" and share one loaded copy
 const base = name => name.replace(/ #\d+$/, "");
@@ -695,7 +709,7 @@ const MODES = {
             placeholder: "Optional: what the final agent should do with the text, e.g. List what I bought and the total.",
             chain: "The final agent combines what the readers found. Readers marked “reads” see the photo; the rest are skipped." },
 };
-const FMT = { text: "plain text", markdown: "Markdown", json: "JSON", fields: "custom fields" };
+const FMT = { text: "plain text", markdown: "Markdown", json: "JSON", fields: "custom fields", ask: "your prompt" };
 const FIELD_TYPES = ["text", "number", "date", "money", "list"];
 const PRESETS = {
   "Receipt": [["store", "text"], ["date", "date"], ["items", "list"], ["subtotal", "money"], ["tax", "money"], ["total", "money"]],
@@ -734,17 +748,27 @@ const FMT_HINTS = {
   markdown: "All the text, keeping headings, lists and tables.",
   json: "All the text, plus whatever labeled values each model spots on its own.",
   fields: "Only the fields you list below. Best for comparing models: every answer lines up field by field.",
+  ask: "Every reader gets the photo and your prompt, word for word, and answers on its own. The final agent writes one answer from theirs.",
 };
+const ASK_PLACEHOLDER = "What should every model do with the photo? e.g. Describe this photo.";
+const FORMAT_KEY = "model-relay:format";  // remembered in this browser
 function setFormat(f) {
   $("#format").value = f;
+  try { localStorage.setItem(FORMAT_KEY, f); } catch {}
+  if (current === "vision") $("#task").placeholder = f === "ask" ? ASK_PLACEHOLDER : MODES.vision.placeholder;
   document.querySelectorAll(".strat.fmt button").forEach(b => b.setAttribute("aria-pressed", b.dataset.format === f));
   $("#fmtHint").textContent = FMT_HINTS[f];
   $("#fieldsBox").hidden = f !== "fields";
   renderStrategy();
 }
-document.querySelectorAll(".strat.fmt button").forEach(b => b.onclick = () => setFormat(b.dataset.format));
+document.querySelectorAll(".strat.fmt button").forEach(b => b.onclick = () => {
+  setFormat(b.dataset.format);
+  if (b.dataset.format === "ask") $("#task").focus();  // the prompt is the whole test
+});
 renderFields();
-setFormat("text");
+let savedFormat = "text";
+try { savedFormat = localStorage.getItem(FORMAT_KEY) || "text"; } catch {}
+setFormat(FMT[savedFormat] ? savedFormat : "text");
 
 // ---- debate settings (the mode is called "roundtable" in code and saved runs) ----
 const ENDS = { vote: "Each model votes for the best final answer. Answers are anonymous and shuffled, and code counts the votes.",
@@ -774,6 +798,8 @@ $("#moderator").onchange = () => renderRoundPanel();
 
 // the cards a vision run gets: readers, then the combiner, or with fields the vote (and the final agent if asked)
 function visionCards(readers, fmt, combiner, asked) {
+  if (fmt === "ask") return { names: [...readers, combiner], readers: readers.length, label: "Prompt for every model",
+                              roles: [...readers.map(() => "answers your prompt"), "writes the final answer"] };
   if (fmt !== "fields") return { names: [...readers, combiner], roles: null, readers: readers.length };
   return { readers: readers.length, names: [...readers, "majority vote", ...(asked ? [combiner] : [])],
            roles: [...readers.map(() => "fills in the fields"), "picks each field's most common answer (code, no model)",
@@ -813,7 +839,7 @@ function setMode(m) {
   current = m;
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.mode === m));
   $("#hint").textContent = MODES[m].hint;
-  $("#task").placeholder = MODES[m].placeholder;
+  $("#task").placeholder = m === "vision" && $("#format").value === "ask" ? ASK_PLACEHOLDER : MODES[m].placeholder;
   $("#roundPanel").hidden = m !== "roundtable";
   $("#debateBox").hidden = m !== "roundtable";
   $("#visionBox").hidden = m !== "vision";
@@ -1112,7 +1138,7 @@ function drag(e, row, from) {
 let nodes = [], wires = [], you;
 const WORKER_COLORS = ["--teal", "--warn", "--pink", "--violet", "--up", "--bad", "--accent"];
 let workerColors = {}, group = null;  // Orchestrator: each worker's color; the card that holds the workers
-function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null, readers = 0) {
+function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null, readers = 0, promptLabel = null) {
   room = null; group = null;
   workerColors = Object.fromEntries(runChain.slice(1).map((n, i) => [n, `var(${WORKER_COLORS[i % WORKER_COLORS.length]})`]));
   const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = [];
@@ -1133,7 +1159,7 @@ function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null, 
   }
   if (task || runMode !== "vision") {
     const m = el("div", "msg down show");
-    m.append(lbl({ vision: "For the final agent" }[runMode] || "Prompt"), el("div", "txt", task));
+    m.append(lbl(promptLabel || { vision: "For the final agent" }[runMode] || "Prompt"), el("div", "txt", task));
     you.append(m);
   }
   you.answer = el("div", "msg up");
@@ -1404,9 +1430,11 @@ function handle(e) {
     if (e.dir === "solo") { fill(n.down, "● answered", meta, e.sent); n.status.textContent = "done"; }
     const when = (e.load >= 0.5 ? ` · ${e.load}s loading` : "") + (e.at != null ? ` · done at ${e.at}s` : "");
     if (e.dir === "extract" || e.dir === "combine") {
-      const verb = e.dir === "combine" ? "⇢ combined" : e.format === "fields" ? "◉ filled in" : "◉ read";
-      addMsg(n, "down", `${verb} ${photoName(e.photo)}` + (e.format === "fields" ? "" : ` · ${FMT[e.format]}`),
-             meta + when, e.sent, { code: e.format !== "text" });
+      const ask = e.format === "ask";
+      const verb = e.dir === "combine" ? (ask ? "⇢ final answer for" : "⇢ combined")
+                 : ask ? "◉ answered about" : e.format === "fields" ? "◉ filled in" : "◉ read";
+      addMsg(n, "down", `${verb} ${photoName(e.photo)}` + (e.format === "fields" || ask ? "" : ` · ${FMT[e.format]}`),
+             meta + when, e.sent, { code: !["text", "ask"].includes(e.format) });
       n.status.textContent = "done";
     }
     if (e.dir === "vote") {
@@ -1442,7 +1470,8 @@ function handle(e) {
   } else if (e.type === "done") {
     finish(e);
   } else if (e.type === "error") {
-    flow(null); busy(null); warn("The run failed: " + e.message);
+    flow(null); busy(null);
+    warn(/^unknown (format|mode)/.test(e.message) ? RESTART : "The run failed: " + e.message);
   }
 }
 
@@ -1520,10 +1549,12 @@ function finish(e) {
   } else if (e.mode === "vision") {
     // the answer is in the final agent's card at the bottom; this card just sums the run up
     const asked = e.answer !== e.combined;
-    parts.push(lbl("Done"), jumpLinks([[nodes[nodes.length - 1], asked ? "Jump to the final agent's answer ↓" : "Jump to the combined text ↓"]]));
+    parts.push(lbl("Done"), jumpLinks([[nodes[nodes.length - 1], e.format === "ask" ? "Jump to the final answer ↓"
+                                        : asked ? "Jump to the final agent's answer ↓" : "Jump to the combined text ↓"]]));
     const ag = el("div", "agree");
     e.agreement.forEach(a => ag.append(el("span", null, a.model), el("span", null, `${Math.round(a.match * 100)}%`)));
-    parts.push(el("div", "stats", "How closely each reading matches the combined text:"), ag);
+    parts.push(el("div", "stats", e.format === "ask" ? "How closely each answer matches the final answer:"
+                                                       : "How closely each reading matches the combined text:"), ag);
     if (e.skipped.length) parts.push(el("div", "stats", "Skipped as readers: " +
       e.skipped.map(m => `${m} (${(e.skipped_why || {})[m] || "can't see images"})`).join(", ")));
     const count = (e.images || [e.image]).length;
@@ -1568,7 +1599,7 @@ async function run(task) {
   const readers = chain.filter(n => info(n).vision);
   if (m === "vision") {
     const cards = visionCards(readers, $("#format").value, $("#combiner").value, !!task);
-    renderStage(task, rule, cards.names, m, images.map(i => i.url), cards.roles, cards.readers);
+    renderStage(task, rule, cards.names, m, images.map(i => i.url), cards.roles, cards.readers, cards.label);
   } else if (m === "roundtable") renderRoom(task, rule, chain);
   else renderStage(task, rule, chain, m);
   // models outside the chain (final agent, moderator) run at their own default, unless every copy is at 0
@@ -1610,6 +1641,9 @@ $("#form").onsubmit = ev => {
   if (running) return;
   if (current === "vision") {
     if (!images.length) return warn("Add a photo first: drop one in, paste it, or choose a file.");
+    if ((serverFormats || ["text", "markdown", "json", "fields"]).indexOf($("#format").value) < 0) return warn(RESTART);
+    if ($("#format").value === "ask" && !task)
+      return warn("Type a prompt: with Your prompt, every model gets it with the photo.");
     if ($("#format").value === "fields" && !fieldSpec.some(f => f.name.trim()))
       return warn("Name at least one field for the models to fill in.");
     if (!chain.some(n => info(n).vision))
@@ -1617,8 +1651,7 @@ $("#form").onsubmit = ev => {
     return run(task);
   }
   if (current === "roundtable" && chain.length < 2) return warn("A debate needs at least two models.");
-  if (serverModes && !serverModes.includes(current))
-    return warn("server.py is older than this page. Restart it: Ctrl+C in its terminal, then python3 server.py");
+  if (serverModes && !serverModes.includes(current)) return warn(RESTART);
   if (task) run(task);
 };
 
@@ -1729,7 +1762,7 @@ async function openRun(id) {
   if (!missing.length) { chain = [...r.chain]; renderChain(); }
   if (r.mode === "vision") {
     const cards = visionCards(r.readers, r.format, r.combiner, r.answer !== r.combined);
-    renderStage(r.task, r.rule, cards.names, r.mode, imgUrls, cards.roles, cards.readers);
+    renderStage(r.task, r.rule, cards.names, r.mode, imgUrls, cards.roles, cards.readers, cards.label);
   } else if (r.mode === "roundtable") { renderRoom(r.task, r.rule, r.chain); renderRoundPanel(); }
   else renderStage(r.task, r.rule, r.chain, r.mode);
   r.trace.forEach(t => handle({ type: "step", ...t }));
@@ -1743,6 +1776,7 @@ fetch("/models").then(r => r.json()).then(d => {
   // every mode needs models that write text; others (e.g. classifiers) are left out, with a note
   installed = d.models.filter(m => m.text !== false); ramGb = d.ram_gb || 0;
   serverModes = d.modes || [];  // servers older than this list can't say which modes they run
+  serverFormats = d.formats || null;  // servers older than this list can't say which Vision options they know
   unusable = d.models.filter(m => m.text === false).map(m => m.name);
   defaultChain = d.default.filter(n => installed.some(m => m.name === n));
   try { chains = JSON.parse(localStorage.getItem(CHAINS_KEY)) || {}; } catch { chains = {}; }

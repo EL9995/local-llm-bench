@@ -49,7 +49,7 @@ class Handler(BaseHTTPRequestHandler):
                            "caps": c, "temp": t}
                           for m, (c, t) in zip(tags, found)]
                 body = {"models": models, "default": bench.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
-                        "modes": MODES}
+                        "modes": MODES, "formats": bench.FORMATS}
             except OSError as e:
                 body = {"error": f"Can't reach Ollama at {bench.OLLAMA}. Is the app running? ({e})"}
             self.reply(200, "application/json", json.dumps(body).encode())

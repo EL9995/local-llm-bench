@@ -15,7 +15,7 @@ from pathlib import Path
 
 import bench
 
-FMT = {"text": "plain text", "markdown": "Markdown", "json": "JSON", "fields": "custom fields"}
+FMT = {"text": "plain text", "markdown": "Markdown", "json": "JSON", "fields": "custom fields", "ask": "your prompt"}
 STRAT = {"together": "all at once", "batch": "batch", "stream": "photo by photo"}
 
 
@@ -68,7 +68,8 @@ def orchestrator_blocks(r):
 def vision_blocks(r):
     names = r.get("images") or ([r["image"]] if r.get("image") else [])
     out = [("h2", "Photos")] + [("img", n) for n in names]
-    out.append(("p", f"Read by {', '.join(r['readers'])} as {FMT.get(r['format'], r['format'])}"
+    out.append(("p", (f"Answered by {', '.join(r['readers'])}" if r["format"] == "ask" else
+                      f"Read by {', '.join(r['readers'])} as {FMT.get(r['format'], r['format'])}")
                      + (f", {STRAT[r['strategy']]}" if len(names) > 1 else "")
                      + (f". Final agent: {r['combiner']}." if r["format"] != "fields" or r["answer"] != r.get("combined") else ".")
                      + (f" First result at {r['first_result']} s, {r['load_secs']} s loading models." if r.get("first_result") else "")))
@@ -86,17 +87,18 @@ def vision_blocks(r):
                 rows.append([name, *cells, vote])
             out.append(("table", ["Field", *r["readers"], "Most common"], rows))
     else:
-        out.append(("text", "Combined text", r.get("combined", "")))
+        out.append(("text", "Final answer" if r["format"] == "ask" else "Combined text", r.get("combined", "")))
     out += [("h2", "How each model did"),
             ("table", ["Model", "Matches the combined result"],
              [[a["model"], f"{round(a['match'] * 100)}%"] for a in r.get("agreement", [])])]
     if r["format"] != "fields":
-        out.append(("h2", "Each reading"))
+        out.append(("h2", "Each answer" if r["format"] == "ask" else "Each reading"))
         for t in r["trace"]:
             if t["dir"] == "extract":
                 photo = "all photos" if t.get("photo") is None and len(names) > 1 else \
                     f"photo {t['photo'] + 1}" if t.get("photo") is not None and len(names) > 1 else "the photo"
-                out.append(("text", f"{t['model']} read {photo} ({meta(t)})", t["sent"]))
+                verb = "answered about" if r["format"] == "ask" else "read"
+                out.append(("text", f"{t['model']} {verb} {photo} ({meta(t)})", t["sent"]))
     return out
 
 

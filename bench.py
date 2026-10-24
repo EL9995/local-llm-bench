@@ -324,7 +324,7 @@ def default_temperature(model):
     return float(m.group(1)) if m else 0.8
 
 
-FORMATS = ["text", "markdown", "json", "fields"]
+FORMATS = ["text", "markdown", "json", "fields", "ask"]  # "ask": every reader gets the user's prompt
 EXTRACT_PROMPTS = {
     "text": "Read this image and write out all the text in it, exactly as written, in reading order. "
             "Keep the line breaks. Don't add anything that isn't in the image. Reply with only the text.",
@@ -355,6 +355,11 @@ TOGETHER_PROMPTS = {  # every photo in one call; each section is labeled so read
 COMBINE_HOW = {"text": ", as plain text. Reply with only the text", "markdown": " as Markdown. Reply with only the Markdown",
                "json": ": all of the text in \"text\", and every labeled value in \"fields\""}
 ACT_PROMPT = "Here is the text from {what}:\n\n{text}\n\n{instruction}"
+ASK_COMBINE_PROMPT = (  # "ask": readers answered the user's own prompt; this only says what happened
+    "You are the final agent in a chain of AI models. {k} models each looked at the same {what} and "
+    "answered this prompt on their own:\n\n{task}\n\nTheir answers:\n\n{answers}\n\n"
+    "Write the final answer to the prompt."
+)
 STRATEGIES = ["together", "batch", "stream"]
 
 FIELD_TYPES = {"text": "text", "number": "a number", "date": "a date, as written", "money": "an amount of money, as written",
@@ -463,7 +468,9 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
                 (first result sooner; reloads models each photo if they don't fit together)
 
     With fmt "fields", readers fill in only the given fields and code picks each field's
-    value by majority vote, so nothing is added at the combining step."""
+    value by majority vote, so nothing is added at the combining step. With fmt "ask", every
+    reader gets the instruction itself, word for word, and the combiner writes the final answer
+    from theirs; there is no separate step acting on the result."""
     images = [i for i in images if i]
     if not images:
         raise ValueError("vision mode needs at least one image")
@@ -473,9 +480,12 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
     seeing = [m for m in chain if "vision" in capabilities(m)]
     skipped_why = {m: "can't see images" for m in chain if m not in seeing}
     readers = seeing
-    if fmt in ("json", "fields"):  # OCR-only models can't follow these instructions
+    if fmt in ("json", "fields", "ask"):  # OCR-only models can't follow these instructions
         readers = [m for m in seeing if not m.startswith(OCR_ONLY)]
-        skipped_why.update({m: "only reads plain text" for m in seeing if m not in readers})
+        why = "only reads text, can't answer a prompt" if fmt == "ask" else "only reads plain text"
+        skipped_why.update({m: why for m in seeing if m not in readers})
+    if fmt == "ask" and not instruction.strip():
+        raise ValueError("type a prompt: with Your prompt, every model gets it with the photo")
     if not readers:
         raise ValueError("none of the models in the chain can read the photo this way; "
                          "add gemma3:4b, a gemma4 model or minicpm")
@@ -500,7 +510,9 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
     def read(i, photo):
         model = readers[i]
         on_event({"type": "call", "dir": "extract", "layer": i, "model": model, "photo": photo})
-        if photo is None:
+        if fmt == "ask":  # the user's prompt, word for word, the way Blind passes it
+            prompt, imgs = instruction, images if photo is None else [images[photo]]
+        elif photo is None:
             prompt, imgs = TOGETHER_PROMPTS[fmt].format(n=n), images
         elif fmt == "fields":
             prompt = FIELDS_PROMPT.format(fields="\n".join(f"- {f['name']} ({FIELD_TYPES[f['type']]})" for f in fields))
@@ -530,14 +542,16 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
         if fmt == "fields":
             return tally(photo)
         texts = [readings[i, photo] for i in range(k)]
-        extractions = "\n\n".join(f"--- Extraction {j + 1} ({m}) ---\n{t}"
+        label = "Answer" if fmt == "ask" else "Extraction"
+        extractions = "\n\n".join(f"--- {label} {j + 1} ({m}) ---\n{t}"
                                    for j, (m, t) in enumerate(zip(readers, texts)))
         what = f"{n} images" if photo is None else "image"
         keep = " Keep the \"Image N\" sections." if photo is None else ""
+        prompt = (ASK_COMBINE_PROMPT.format(k=k, what=what, task=instruction, answers=extractions) if fmt == "ask"
+                  else COMBINE_PROMPT.format(k=k, what=what, extractions=extractions, how=COMBINE_HOW[fmt], keep=keep))
         on_event({"type": "call", "dir": "combine", "layer": k, "model": combiner, "photo": photo})
         with own_temperature("combiner", combiner):
-            out, secs, tps = ask(combiner, COMBINE_PROMPT.format(k=k, what=what, extractions=extractions,
-                                                                 how=COMBINE_HOW[fmt], keep=keep),
+            out, secs, tps = ask(combiner, prompt,
                                  kind, rule, VISION_TOKENS * (n if photo is None else 1), num_ctx=COMBINE_CTX)
         combined[photo] = as_text(out, fmt)
         step({"dir": "combine", "layer": k, "model": combiner, "photo": photo, "sent": combined[photo],
@@ -564,7 +578,7 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
         combined[0] if n == 1 else "\n\n".join(f"## Photo {p + 1}\n{combined[p]}" for p in photos))
     answer = joined
     act_layer = k + 1 if fmt == "fields" else k  # with fields the vote has its own card
-    if instruction:
+    if instruction and fmt != "ask":  # with "ask" the readers already had the instruction
         on_event({"type": "call", "dir": "act", "layer": act_layer, "model": combiner})
         with own_temperature("combiner", combiner):
             out, secs, tps = ask(combiner, ACT_PROMPT.format(what="an image" if n == 1 else f"{n} images",
