@@ -17,6 +17,7 @@ Run:   python3 bench.py "How many r's are in strawberry?"      (blind, default c
 
 import argparse
 import base64
+import contextlib
 import contextvars
 import difflib
 import hashlib
@@ -67,6 +68,19 @@ def post(path, body):
 # None leaves each model's own default, so the same model can answer differently each time.
 TEMPERATURE = contextvars.ContextVar("temperature", default=0)
 TEMPERATURES = contextvars.ContextVar("temperatures", default={})  # per chain entry, e.g. {"gemma3:1b #2": 1.2}
+
+
+@contextlib.contextmanager
+def own_temperature(role, model):
+    """While a role ("moderator", "combiner") runs, use its own temperature if the run set one,
+    apart from any copy of the same model in the chain."""
+    temps = TEMPERATURES.get()
+    token = TEMPERATURES.set({**temps, model: temps[role]}) if role in temps else None
+    try:
+        yield
+    finally:
+        if token:
+            TEMPERATURES.reset(token)
 
 
 def base(model):
@@ -521,9 +535,10 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
         what = f"{n} images" if photo is None else "image"
         keep = " Keep the \"Image N\" sections." if photo is None else ""
         on_event({"type": "call", "dir": "combine", "layer": k, "model": combiner, "photo": photo})
-        out, secs, tps = ask(combiner, COMBINE_PROMPT.format(k=k, what=what, extractions=extractions,
-                                                             how=COMBINE_HOW[fmt], keep=keep),
-                             kind, rule, VISION_TOKENS * (n if photo is None else 1), num_ctx=COMBINE_CTX)
+        with own_temperature("combiner", combiner):
+            out, secs, tps = ask(combiner, COMBINE_PROMPT.format(k=k, what=what, extractions=extractions,
+                                                                 how=COMBINE_HOW[fmt], keep=keep),
+                                 kind, rule, VISION_TOKENS * (n if photo is None else 1), num_ctx=COMBINE_CTX)
         combined[photo] = as_text(out, fmt)
         step({"dir": "combine", "layer": k, "model": combiner, "photo": photo, "sent": combined[photo],
               "format": fmt, "secs": secs, "tok_s": tps, "cut": out["cut"], "load": out["load"]})
@@ -551,9 +566,10 @@ def vision(instruction, chain, rule="", on_event=lambda e: None, images=(), fmt=
     act_layer = k + 1 if fmt == "fields" else k  # with fields the vote has its own card
     if instruction:
         on_event({"type": "call", "dir": "act", "layer": act_layer, "model": combiner})
-        out, secs, tps = ask(combiner, ACT_PROMPT.format(what="an image" if n == 1 else f"{n} images",
-                                                         text=joined, instruction=instruction),
-                             "bottom", rule, VISION_TOKENS, num_ctx=COMBINE_CTX)
+        with own_temperature("combiner", combiner):
+            out, secs, tps = ask(combiner, ACT_PROMPT.format(what="an image" if n == 1 else f"{n} images",
+                                                             text=joined, instruction=instruction),
+                                 "bottom", rule, VISION_TOKENS, num_ctx=COMBINE_CTX)
         answer = out["answer"]
         step({"dir": "act", "layer": act_layer, "model": combiner, "sent": answer, "secs": secs, "tok_s": tps,
               "cut": out["cut"], "load": out["load"]})
@@ -693,14 +709,9 @@ def roundtable(task, chain, rule="", on_event=lambda e: None, rounds=2, ending="
         if ending == "both":
             votes = "\nThe models then voted: " + ", ".join(f"{m} {c}" for m, c in extra["tally"].items()) + ".\n"
         on_event({"type": "call", "dir": "moderate", "layer": k, "model": moderator})
-        temps = TEMPERATURES.get()  # the moderator's own setting, apart from any copy of it in the chain
-        token = TEMPERATURES.set({**temps, moderator: temps["moderator"]}) if "moderator" in temps else None
-        try:
+        with own_temperature("moderator", moderator):
             out, secs, tps = ask(moderator, MODERATE_PROMPT.format(task=task, transcript=transcript(), votes=votes),
                                  "bottom", rule, VISION_TOKENS, num_ctx=COMBINE_CTX)
-        finally:
-            if token:
-                TEMPERATURES.reset(token)
         extra.update(moderator=moderator, summary=out["answer"])
         answer = tagged(out["answer"], "final answer") or answer or my_answer(out["answer"])
         step({"dir": "moderate", "layer": k, "model": moderator, "sent": out["answer"], "secs": secs,

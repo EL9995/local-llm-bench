@@ -42,7 +42,8 @@ the command line, or `python3 harness.py orchestrator` to score the orchestrator
 
 - **Vision**: drop in a photo. Every model in the chain that can see images (gemma3:4b and the
   gemma4 models) extracts its text on its own, as plain text, Markdown or JSON with labeled fields.
-  A final agent you pick combines the readings and, if you typed an instruction, acts on the result.
+  A final agent you pick (a row at the top of the chain, with its own temperature) combines the
+  readings and, if you typed an instruction, acts on the result.
   The page shows how closely each reading matches the combined text. Photos are kept in
   `runs/images/` so saved runs can show them again. With several photos (up to 8), a toggle picks
   the order: **All at once** (each reader gets every photo in one call), **Batch** (every reader
