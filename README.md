@@ -71,7 +71,8 @@ the command line, or `python3 harness.py orchestrator` to score the orchestrator
   format, counted by code), or both. How it ends and the moderator (a row like the debaters', with
   its own temperature) sit at the top of the chain. The debate reads as a group chat under
   **See Debate**, which folds it away; each round folds on its own, and Rounds / Compact / Full
-  sets how much shows. The vote and the moderator's verdict follow in their own cards, verdict last.
+  sets how much shows. The vote (the winner, with the tally and ballots a click away) and the moderator's
+  verdict (a preview until opened) follow in their own cards, verdict last.
 
 The chain can be in any order (drag the models on the page, or `--chain`). **Add a model** opens
 a catalog of what's installed, with search, filters for what each model can do (vision, thinking,
@@ -103,7 +104,7 @@ python3 server.py
 
 Every run, from the page or the command line, is saved as one JSON file in `runs/` (git-ignored):
 the prompt, rule, mode, chain, every message each model sent, timings, and the final answer.
-The page's **Previous runs** list opens any of them again. Add `--no-save` to skip saving.
+The page's **Previous runs** list, filtered by mode if you like, opens any of them again. Add `--no-save` to skip saving.
 
 Every finished run also has **Open report** (a readable, standalone page with photos embedded; use
 Print → Save as PDF for a PDF) and **Download Markdown** (the same report as plain text, for GitHub

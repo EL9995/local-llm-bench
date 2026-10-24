@@ -295,6 +295,26 @@
   .outcome { margin-top: 14px; }
   .outcome[hidden] { display: none; }
   .outcome .head .model { font-family: inherit; }
+  .outcome .head { cursor: pointer; }
+  .outcome.collapsed .tally, .outcome.collapsed .ballots { display: none; }
+  .outcome .more { background: none; color: var(--accent); padding: 6px 0 0; font-size: 12px; font-weight: 600; }
+  /* Done: one line until Details opens the numbers */
+  .msg .lbl .dtoggle { margin-left: auto; background: none; color: var(--muted); padding: 0; font-size: 12px;
+                       font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .msg .lbl .dtoggle:hover { color: var(--ink); }
+  .donedetails[hidden] { display: none; }
+  .donelinks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  /* Orchestrator: the workers' cards gathered in one card, each worker in its own color */
+  .group { margin-top: 0; }
+  .group .gbody { display: grid; gap: 10px; margin-top: 10px; }
+  .group.shut .gbody { display: none; }
+  .group .node { background: var(--bg); }
+  .node.worker { border-left: 4px solid var(--who); }
+  .node.worker .model { color: var(--who); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .legend b { font-family: var(--mono); color: var(--who); }
+  /* previous runs: filter by mode */
+  .hfilter { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 14px 8px; }
   .outcome .ballots { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
   .outcome .typing { margin-top: 8px; }
   .divider { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 600; color: var(--muted);
@@ -365,7 +385,8 @@
   .fold-btn:hover { color: var(--ink); }
   .node.collapsed .fold-btn { transform: rotate(-90deg); }
   .node.collapsed .msg { padding: 5px 12px; margin-top: 6px; }
-  .node.collapsed .msg .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+  .node.collapsed .msg .txt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
+                              white-space: normal; font-size: 14px; }  /* a 4-line preview; line breaks fold into spaces */
   .node.collapsed .note { display: none; }
 
   .wire { position: relative; height: 32px; margin-left: 32px; width: 2px; background: var(--line); }
@@ -530,6 +551,7 @@
     <details class="panel history">
       <summary>Previous runs <span id="hcount"></span></summary>
       <p class="hnote" id="hnote" aria-live="polite"></p>
+      <div class="hfilter" id="hfilter" role="group" aria-label="Show runs from"></div>
       <ol id="hlist"></ol>
     </details>
   </aside>
@@ -1073,8 +1095,11 @@ function drag(e, row, from) {
 
 // ---- the stage: You at the top, one card per model, a wire above each card ----
 let nodes = [], wires = [], you;
+const WORKER_COLORS = ["--teal", "--warn", "--pink", "--violet", "--up", "--bad", "--accent"];
+let workerColors = {}, group = null;  // Orchestrator: each worker's color; the card that holds the workers
 function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null) {
-  room = null;
+  room = null; group = null;
+  workerColors = Object.fromEntries(runChain.slice(1).map((n, i) => [n, `var(${WORKER_COLORS[i % WORKER_COLORS.length]})`]));
   const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = [];
   const bar = el("div", "stagebar");
   const all = (fold, text) => { const b = el("button", "ghost", text); b.type = "button";
@@ -1107,11 +1132,13 @@ function renderStage(task, rule, runChain, runMode, imgUrls = [], roles = null) 
     addNode(name, role, runMode === "blind" ? `Model ${i + 1}` : `Layer ${i + 1}`);
   });
 }
-// one card on the stage, with a wire above it
-function addNode(name, role, label) {
+// one card on the stage, with a wire above it; inside a group, cards sit in the group without wires
+function addNode(name, role, label, into = null) {
   const stage = $("#stage");
-  const w = el("div", "wire"); w.append(el("i")); wires.push(w); stage.append(w);
+  const w = el("div", "wire"); w.append(el("i")); wires.push(w);  // kept in step with nodes, so flow(i) finds it
+  if (!into) stage.append(w);
   const n = el("div", "node");
+  if (into && workerColors[name]) { n.classList.add("worker"); n.style.setProperty("--who", workerColors[name]); }
   const head = el("div", "head");
   head.append(el("span", "layer", label), el("span", "model", name), el("span", "role", role));
   n.status = el("span", "status", "waiting"); head.append(n.status);
@@ -1121,12 +1148,30 @@ function addNode(name, role, label) {
   head.onclick = () => setFolded(n, !n.classList.contains("collapsed"));
   n.down = el("div", "msg down"); n.up = el("div", "msg up");
   n.append(head, n.down, n.up);
-  nodes.push(n); stage.append(n);
+  nodes.push(n); (into || stage).append(n);
   return n;
+}
+function workerGroup(k, workers) {  // one card holding every worker's card; it folds away like See Debate
+  const stage = $("#stage"), w = el("div", "wire"); w.append(el("i")); stage.append(w);
+  const g = el("section", "chat group"), head = el("div", "chathead"), body = el("div", "gbody");
+  const see = el("button", "seetoggle", `Workers · ${k} subtask${k === 1 ? "" : "s"}`); see.type = "button";
+  g.count = el("small"); see.append(g.count);
+  see.onclick = () => g.classList.toggle("shut");
+  const names = [...new Set(workers)], legend = el("div", "legend");
+  names.forEach(m => {
+    const item = el("span"), b = el("b", null, m); item.style.setProperty("--who", workerColors[m] || "var(--muted)");
+    const did = workers.map((x, j) => x === m ? j + 1 : 0).filter(Boolean);
+    item.append(b, ` subtask${did.length > 1 ? "s" : ""} ${did.join(", ")}`); legend.append(item);
+  });
+  head.append(see); g.append(head, legend, body); g.body = body; g.done = 0; g.total = k;
+  g.paint = () => { g.count.textContent = `${g.done} of ${g.total} done`; };
+  g.paint(); stage.append(g);
+  return g;
 }
 
 function setFolded(n, fold) {
   n.classList.toggle("collapsed", fold);
+  n.onfold?.(fold);
   n.fold.setAttribute("aria-expanded", String(!fold));
   n.fold.setAttribute("aria-label", (fold ? "Expand" : "Collapse") + n.fold.getAttribute("aria-label").replace(/^\w+/, ""));
 }
@@ -1164,10 +1209,17 @@ const SEE_KEY = "model-relay:debate-open", VIEW_KEY = "model-relay:debate-view";
 const stored = (k, fallback) => { try { return localStorage.getItem(k) || fallback; } catch { return fallback; } };
 const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let room = null;
-function outcomeCard(title) {
+function outcomeCard(title, labels) {  // folded at first: the vote shows its winner, the verdict a preview
   const c = el("section", "node outcome"), h = el("div", "head");
   c.status = el("span", "status", ""); h.append(el("span", "model", title), c.status);
-  c.body = el("div"); c.append(h, c.body); c.hidden = true;
+  c.fold = el("button", "fold-btn", "▾"); c.fold.type = "button"; c.fold.setAttribute("aria-label", `Collapse ${title}`);
+  h.append(c.fold); h.onclick = () => setFolded(c, !c.classList.contains("collapsed"));
+  c.body = el("div");
+  c.more = el("button", "more"); c.more.type = "button";
+  c.more.onclick = () => setFolded(c, !c.classList.contains("collapsed"));
+  c.onfold = fold => { c.more.textContent = fold ? labels[0] : labels[1]; };
+  c.append(h, c.body, c.more); c.hidden = true;
+  setFolded(c, true);
   return c;
 }
 function renderRoom(task, rule, models) {
@@ -1180,7 +1232,8 @@ function renderRoom(task, rule, models) {
   you.answer = el("div", "msg up"); you.append(you.answer);
   room = { box: el("div", "room"), colors: {}, rounds: {}, typing: el("div", "typing"), count: el("small"),
            said: 0, changed: 0, view: stored(VIEW_KEY, "compact"), chat: el("section", "chat"),
-           vote: outcomeCard("The vote"), verdict: outcomeCard("Moderator's verdict") };
+           vote: outcomeCard("The vote", ["Show the tally and ballots", "Hide the tally and ballots"]),
+           verdict: outcomeCard("Moderator's verdict", ["Show the whole verdict", "Show less"]) };
   room.vote.top = el("div"); room.vote.ballots = el("div", "ballots"); room.vote.ballots.hidden = true;
   room.vote.body.append(room.vote.top, room.vote.ballots);
   models.forEach((name, i) => room.colors[name] = `var(${WHO[i % WHO.length]})`);
@@ -1337,14 +1390,16 @@ function handle(e) {
       fill(n.down, `◇ split it into ${k} subtask${k > 1 ? "s" : ""}`, meta, e.sent,
            { notes: [!e.planned && "Couldn't read the plan, so the whole task went to one worker."], tone: !e.planned && "bad" });
       n.status.textContent = "planned";
-      if (nodes.length === 1) {  // the workers' cards, then the merge
-        e.subtasks.forEach((t, j) => addNode(e.workers[j], `subtask ${j + 1}`, `Worker ${j + 1}`));
+      if (nodes.length === 1) {  // the workers' cards, gathered in one card, then the merge
+        group = workerGroup(k, e.workers);
+        e.subtasks.forEach((t, j) => addNode(e.workers[j], `subtask ${j + 1}`, `Worker ${j + 1}`, group.body));
         addNode(e.model, "merges the answers", "Orchestrator");
       }
     }
     if (e.dir === "work") {
       fill(n.down, "↓ its subtask", null, e.task);
       fill(n.up, "● answered", meta, e.sent);
+      if (n.status.textContent !== "done" && group) { group.done++; group.paint(); }
       n.status.textContent = "done";
     }
     if (e.dir === "merge") {
@@ -1360,6 +1415,7 @@ function handle(e) {
   }
 }
 
+const DETAILS_KEY = "model-relay:done-details";  // whether Done shows its details, remembered in this browser
 function finish(e) {
   const parts = [];
   if (e.mode === "blind") {
@@ -1385,7 +1441,7 @@ function finish(e) {
     }
     const jumpTo = (card, text) => { const a = el("a", "ghost btnlink", text); a.href = "#";
       a.onclick = ev => { ev.preventDefault(); card.scrollIntoView({ block: "start", behavior: "smooth" }); }; return a; };
-    const links = el("div", "fbtns");
+    const links = el("div", "donelinks");
     if (e.tally && room) links.append(jumpTo(room.vote, "Jump to the vote ↓"));
     if (e.summary && room) links.append(jumpTo(room.verdict, "Jump to the verdict ↓"));
     parts.push(lbl("Done"), links);
@@ -1397,7 +1453,8 @@ function finish(e) {
     // the answer itself is in the merge card at the bottom; this card just sums the run up
     const jump = el("a", "ghost btnlink", "Jump to the final answer ↓"); jump.href = "#";
     jump.onclick = ev => { ev.preventDefault(); nodes[nodes.length - 1]?.scrollIntoView({ block: "start", behavior: "smooth" }); };
-    parts.push(lbl("Done"), jump,
+    const links = el("div", "donelinks"); links.append(jump);
+    parts.push(lbl("Done"), links,
       el("div", "stats", `${k} subtask${k === 1 ? "" : "s"} · worker${ws.length > 1 ? "s" : ""}: ${ws.join(", ")} · ` +
                          `merged by ${e.chain[0]}` +
                          ((e.trace || []).some(t => t.dir === "merge" && t.cut) ? " · cut off at the token limit" : "")),
@@ -1435,11 +1492,23 @@ function finish(e) {
       Object.entries(e.temperatures || {}).map(([m, t]) => ` · ${m} at ${t ?? "its own default"}`).join("")));
   parts.push(el("div", "stats", e.id ? `Saved ${e.time.replace("T", " ")} · runs/${e.id}.json` : "Not saved"));
   if (e.id) {  // readable copies of the run
-    const row = el("div", "fbtns"); row.style.marginTop = "8px";
+    const row = el("div", "fbtns detail"); row.style.marginTop = "8px";
     const page = el("a", "ghost btnlink", "Open report"); page.href = `/runs/${encodeURIComponent(e.id)}.html`; page.target = "_blank";
     const md = el("a", "ghost btnlink", "Download Markdown"); md.href = `/runs/${encodeURIComponent(e.id)}.md`; md.download = `${e.id}.md`;
     row.append(page, md); parts.push(row);
   }
+  // compact: the label, links and any answer stay; the numbers, temperature, file and reports go under Details
+  const detail = p => ["stats", "verdict", "agree", "detail"].some(c => p.classList?.contains(c));
+  const more = el("div", "donedetails"); more.append(...parts.filter(detail));
+  const keep = parts.filter(p => !detail(p));
+  if (more.childNodes.length && keep[0]?.classList?.contains("lbl")) {
+    const t = el("button", "dtoggle"); t.type = "button";
+    const open = v => { more.hidden = !v; t.textContent = v ? "Hide details ▴" : "Details ▾"; t.setAttribute("aria-expanded", v); };
+    t.onclick = () => { const v = more.hidden; open(v); store(DETAILS_KEY, v ? "open" : "shut"); };
+    open(stored(DETAILS_KEY, "shut") === "open");
+    keep[0].append(t);
+  }
+  parts.splice(0, parts.length, ...keep, more);
   const show = () => {
     flow(null);
     you.answer.replaceChildren(...parts); you.answer.classList.add("show");
@@ -1547,11 +1616,26 @@ function summary(r) {
   }
   return `→ ${r.answer}`;
 }
+const RUNS_KEY = "model-relay:runs-filter";  // which mode's runs to list, remembered in this browser
+let runFilter = stored(RUNS_KEY, "all"), allRuns = [];
 async function loadHistory() {
-  let runs = [];
-  try { runs = await (await fetch("/runs")).json(); } catch { return; }
-  runs = runs.filter(r => MODES[r.mode]);  // runs from modes this page no longer has
-  $("#hcount").textContent = `(${runs.length})`;
+  try { allRuns = (await (await fetch("/runs")).json()).filter(r => MODES[r.mode]); }  // modes this page still has
+  catch { return; }
+  renderHistory();
+}
+function renderHistory() {
+  const name = m => m === "roundtable" ? "Debate" : m[0].toUpperCase() + m.slice(1);
+  const tabOrder = [...document.querySelectorAll(".tabs button")].map(b => b.dataset.mode);
+  $("#hfilter").replaceChildren(...["all", ...tabOrder].map(m => {
+    const n = m === "all" ? allRuns.length : allRuns.filter(r => r.mode === m).length;
+    const b = el("button", "chip", m === "all" ? "All runs" : name(m)); b.type = "button";
+    b.append(el("small", null, n)); b.disabled = !n && m !== "all";
+    b.setAttribute("aria-pressed", runFilter === m);
+    b.onclick = () => { runFilter = m; store(RUNS_KEY, m); renderHistory(); };
+    return b;
+  }));
+  const runs = runFilter === "all" ? allRuns : allRuns.filter(r => r.mode === runFilter);
+  $("#hcount").textContent = runFilter === "all" ? `(${allRuns.length})` : `(${runs.length} of ${allRuns.length})`;
   const list = $("#hlist");
   if (!runs.length) return list.replaceChildren(el("li", "empty", "Nothing yet. Every run you do shows up here."));
   list.replaceChildren(...runs.map(r => {
