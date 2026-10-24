@@ -25,11 +25,12 @@ RAM_GB = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)
 MAX_BODY = 60 * 2**20  # uploaded photos, base64-encoded
 
 
-def caps(name):
+def details(name):
+    """A model's capabilities and the temperature it ships with."""
     try:
-        return bench.capabilities(name)
+        return bench.capabilities(name), bench.default_temperature(name)
     except OSError:
-        return []
+        return [], None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,10 +43,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 tags = bench.post_get("/api/tags").get("models", [])
                 with ThreadPoolExecutor(8) as pool:
-                    found = list(pool.map(caps, [m["name"] for m in tags]))
+                    found = list(pool.map(details, [m["name"] for m in tags]))
                 models = [{"name": m["name"], "gb": round(m["size"] / 1e9, 1), "vision": "vision" in c,
-                           "tools": "tools" in c, "text": "completion" in c or not c}  # unknown: assume it writes text
-                          for m, c in zip(tags, found)]
+                           "tools": "tools" in c, "text": "completion" in c or not c,  # unknown: assume it writes text
+                           "caps": c, "temp": t}
+                          for m, (c, t) in zip(tags, found)]
                 body = {"models": models, "default": bench.DEFAULT_CHAIN.split(","), "ram_gb": RAM_GB,
                         "modes": MODES}
             except OSError as e:

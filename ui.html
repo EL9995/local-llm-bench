@@ -31,8 +31,6 @@
   button.ghost { background: none; color: var(--muted); border: 1px solid var(--line);
                  padding: 3px 10px; font-size: 12px; font-weight: 500; }
   button.ghost:hover { color: var(--ink); }
-  #saveRun { padding: 7px 14px; font-size: 13px; }
-  #saveRun:disabled { opacity: .4; }
   a.btnlink { display: inline-block; color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
               padding: 3px 10px; font-size: 12px; font-weight: 500; text-decoration: none; }
   a.btnlink:hover { color: var(--ink); }
@@ -42,7 +40,7 @@
 
   /* ---- header: title + mode tabs ---- */
   header { border-bottom: 1px solid var(--line); background: var(--surface); }
-  .bar { max-width: 1160px; margin: 0 auto; padding: 14px 16px; display: flex; flex-wrap: wrap;
+  header .bar { max-width: 1440px; margin: 0 auto; padding: 14px 16px; display: flex; flex-wrap: wrap;
          align-items: center; gap: 12px 24px; }
   h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
   .tabs { display: inline-flex; gap: 4px; background: var(--bg); border: 1px solid var(--line);
@@ -52,15 +50,17 @@
           box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 
   /* ---- layout: sidebar + main; one column on narrow screens ---- */
-  .layout { max-width: 1160px; margin: 0 auto; padding: 20px 16px 80px; display: grid; gap: 20px;
-            grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: auto 1fr;
+  .layout { max-width: 1440px; margin: 0 auto; padding: 20px 16px 80px; display: grid; gap: 20px;
+            grid-template-columns: 380px minmax(0, 1fr); grid-template-rows: auto 1fr;
             grid-template-areas: "side compose" "side stage"; align-items: start; }
-  .side { grid-area: side; display: grid; gap: 12px; position: sticky; top: 16px; }
+  /* the sidebar stays in view and scrolls on its own when it's taller than the window */
+  .side { grid-area: side; display: grid; gap: 12px; position: sticky; top: 16px;
+          max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
   #form { grid-area: compose; }
   .stagewrap { grid-area: stage; }
   @media (max-width: 860px) {
     .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "compose" "side" "stage"; }
-    .side { position: static; }
+    .side { position: static; max-height: none; overflow: visible; }
   }
 
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
@@ -71,27 +71,98 @@
 
   /* ---- chain list ---- */
   .chainlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .row { display: grid; grid-template-columns: auto auto 1fr auto auto auto; align-items: center; gap: 8px;
+  .chainlist { container-type: inline-size; position: relative; }
+  /* long lists show 5 rows and scroll; the edge fades while there's more to see */
+  .chainlist, .plist { overflow-y: auto; }
+  .more-below { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+  .more-above { mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
+  .more-above.more-below { mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+  .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 2px 8px;
+         grid-template-areas: "grip n name dup x" "grip n tctl tctl tctl";
          padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
          cursor: grab; user-select: none; touch-action: none; position: relative;
          transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .15s; }
-  .row .grip { color: var(--muted); letter-spacing: -2px; }
-  .row .n { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; width: 1.2em; text-align: right; }
-  .row .name { font-family: var(--mono); font-size: 13px; font-weight: 600; min-width: 0;
+  @container (min-width: 600px) {
+    .row { grid-template-columns: auto auto minmax(0, 1fr) minmax(240px, 340px) auto auto;
+           grid-template-areas: "grip n name tctl dup x"; }
+  }
+  .row .grip { grid-area: grip; color: var(--muted); letter-spacing: -2px; }
+  .row .n { grid-area: n; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; width: 1.2em; text-align: right; }
+  .row .name { grid-area: name; font-family: var(--mono); font-size: 13px; font-weight: 600; min-width: 0;
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .name small { display: block; font-family: inherit; font-weight: 400; font-size: 11px; color: var(--muted); }
   .row button { background: none; color: var(--muted); font-weight: 500; font-size: 12px; padding: 2px 6px; }
-  .row button:hover { color: var(--ink); }
+  .row button:hover:not(:disabled) { color: var(--ink); }
+  .row .icon { width: 28px; height: 28px; padding: 0; font-size: 15px; border-radius: 6px; line-height: 1; }
+  .row .icon:hover:not(:disabled) { background: var(--surface); }
+  .row .dup { grid-area: dup; } .row .x { grid-area: x; }
+  /* Debate: the moderator sits above the debaters, in a row like theirs, but stays put */
+  .debatebox { container-type: inline-size; }  /* so the moderator's row goes to one line when the debaters' do */
+  .debatebox[hidden] { display: none; }
+  .debatebox .field { margin-bottom: 10px; }
+  .modrow { cursor: default; touch-action: auto; border-color: var(--up); }
+  .modrow[hidden] { display: none; }
+  .modrow .grip { letter-spacing: 0; color: var(--up); }
+  .modrow .icon { display: block; width: 28px; }
+  .modrow select { font: 600 13px var(--mono); padding: 2px 6px; max-width: 100%; background: var(--surface); }
+  .modrow small .job { color: var(--up); }
+  .modlabel { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
   .row.lifted { z-index: 2; cursor: grabbing; transition: box-shadow .15s;
                box-shadow: 0 10px 24px rgba(0, 0, 0, .28); border-color: var(--accent); }
   @media (prefers-reduced-motion: reduce) { .row, .row.lifted { transition: none; } }
   .row:focus-visible { outline-offset: 1px; }
   #add { width: 100%; margin-top: 8px; }
-  .row.off { opacity: .55; }
-  .row .eye { font-size: 11px; color: var(--teal); padding-right: 4px; white-space: nowrap; }
+  .row.off .name, .row.off .tctl { opacity: .55; }
+  .row .eye { color: var(--teal); }
   .row.off .eye { color: var(--muted); }
-  .row .temp { width: 46px; font: 12px var(--mono); padding: 2px 4px; text-align: center; }
-  .row .job { font-size: 11px; color: var(--violet); padding-right: 4px; white-space: nowrap; }
+  .row .job { color: var(--violet); }
+
+  /* per-copy temperature: the slider is the main control; type or step in the box; Default goes back */
+  .tctl { grid-area: tctl; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tctl .tlabel { font-size: 11px; color: var(--muted); }
+  .tslide { position: relative; flex: 1; min-width: 60px; display: flex; align-items: center; }
+  .tslide input { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .tctl.def .tslide input { accent-color: var(--muted); }
+  .tslide .tick { position: absolute; bottom: -5px; width: 2px; height: 5px; margin-left: -1px;
+                  background: var(--muted); border-radius: 1px; pointer-events: none; }
+  .tctl .tnum { width: 58px; font: 12px var(--mono); padding: 3px 4px; text-align: right; border-radius: 6px;
+                border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .tctl.def .tnum { color: var(--muted); }
+  .row .tctl .tdef { font-size: 11px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; }
+  .row .tctl .tdef[aria-pressed=true] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .tempall { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  .tempall span { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .tnote { margin: 6px 0 0; }
+  .tnote b { font-weight: 600; }
+
+  /* the catalog of installed models, always open: search, capability filters, a sort and +/- counts */
+  .picker { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 8px; }
+  .ptop { display: flex; gap: 6px; }
+  .ptop input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px;
+                border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .pchips { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+  .chip { background: var(--surface); color: var(--muted); border: 1px solid var(--line); font-size: 12px;
+          font-weight: 500; padding: 2px 10px; border-radius: 999px; }
+  .chip small { opacity: .7; margin-left: 2px; }
+  .chip[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .plist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; position: relative; }
+  .pitem { display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 8px; }
+  .pitem.inchain { background: var(--surface); }
+  .pitem .pname { flex: 1; min-width: 0; }
+  .pitem .pname b { display: block; font: 600 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pitem .pname small { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: var(--muted); }
+  .badge { font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--surface);
+           border: 1px solid var(--line); color: var(--muted); }
+  .badge.vision { color: var(--teal); border-color: var(--teal); }
+  .badge.thinking { color: var(--violet); border-color: var(--violet); }
+  .pitem.off { opacity: .5; }
+  .stepper { display: flex; align-items: center; gap: 2px; }
+  .stepper button { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--surface);
+                    color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+  .stepper .cnt { min-width: 20px; text-align: center; font: 600 13px var(--mono); }
+  .stepper .padd { width: auto; padding: 0 12px; color: var(--accent); border-color: var(--accent); }
+  .pfoot2 { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .plist .empty { color: var(--muted); font-size: 13px; padding: 8px; }
 
   /* ---- image upload ---- */
   .imgzone { border: 1.5px dashed var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px;
@@ -165,14 +236,16 @@
   .field > span em { font-style: normal; font-weight: 400; }
   textarea { width: 100%; font: inherit; color: var(--ink); resize: none; display: block; overflow-y: auto; }
   #rule { font-size: 14px; padding: 8px 12px; border-radius: 8px; border: 1px dashed var(--line); background: var(--bg); }
-  .prompt { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 10px 12px 8px; }
+  .prompt { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 14px 16px 10px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .06); }
   .prompt:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  #task { border: 0; background: none; font-size: 16px; line-height: 1.5; padding: 2px 0; }
+  #task { border: 0; background: none; font-size: 17px; line-height: 1.5; padding: 2px 0; min-height: 4.6em; }
+  .rulefield { margin: 12px 0 8px; }
   #task:focus-visible { outline: none; }
   .pfoot { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .pfoot span { flex: 1; font-size: 12px; color: var(--muted); }
 
-  .banner { margin-top: 12px; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft);
+  .banner { margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: var(--warn-soft);
             color: var(--warn); display: none; }
   .banner.show { display: block; }
 
@@ -181,10 +254,14 @@
   .history summary { padding: 12px 14px; cursor: pointer; font-weight: 600; font-size: 14px; }
   .history summary span { color: var(--muted); font-weight: 400; }
   .history ol { list-style: none; margin: 0; padding: 0 6px 6px; max-height: 340px; overflow-y: auto; }
-  .history li button { all: unset; box-sizing: border-box; width: 100%; display: grid; cursor: pointer;
+  .history li { display: flex; align-items: center; gap: 4px; }
+  .history li button.open { all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: grid; cursor: pointer;
           grid-template-columns: auto 1fr; gap: 2px 8px; padding: 8px; border-radius: 8px; font-size: 13px; }
-  .history li button:hover, .history li button:focus-visible { background: var(--bg); }
-  .history li button.current { background: var(--accent-soft); }
+  .history li button.open:hover, .history li button.open:focus-visible { background: var(--bg); }
+  .history li button.open.current { background: var(--accent-soft); }
+  .history li .hsave { flex: none; margin-right: 4px; white-space: nowrap; }
+  .hnote { font-size: 12px; color: var(--muted); margin: 0 14px 8px; }
+  .hnote:empty { display: none; }
   .history .q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .history .a { color: var(--muted); font-size: 12px; grid-column: 1 / 3; overflow: hidden;
           text-overflow: ellipsis; white-space: nowrap; }
@@ -196,21 +273,45 @@
   .tag.orchestrator { background: var(--violet-soft); color: var(--violet); }
   .tag.roundtable { background: var(--pink-soft); color: var(--pink); }
 
-  /* ---- debate (mode "roundtable"): the discussion is a group chat, folded away under the verdict ---- */
-  .debatelog { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-  .debatelog > summary { padding: 12px 16px; cursor: pointer; font-weight: 600; font-size: 14px; }
-  .debatelog > summary small { font-weight: 400; color: var(--muted); margin-left: 6px; }
-  .room { display: grid; gap: 10px; padding: 0 12px 12px; }
+  /* ---- debate (mode "roundtable"): a group chat in rounds, then the vote and the verdict, each in its own card ---- */
+  .chat { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 10px 14px 14px; }
+  .chathead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .seetoggle { background: none; color: var(--ink); padding: 2px 0; font-size: 14px; text-align: left; flex: 1; }
+  .seetoggle small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .seetoggle::before { content: "▾ "; color: var(--muted); }
+  .chat.shut .seetoggle::before { content: "▸ "; }
+  .views { flex: none; }
+  .views button { padding: 4px 12px; }
+  .chat.shut .room, .chat.shut .views { display: none; }
+  .room { display: grid; gap: 10px; margin-top: 8px; }
+  .rbody { display: grid; gap: 10px; margin-top: 10px; }
+  .round.shut .rbody { display: none; }
+  button.divider { width: 100%; background: none; padding: 4px 0; border-radius: 0; font-size: 12px; font-weight: 600;
+                   color: var(--muted); }
+  button.divider:hover { color: var(--ink); }
+  .say { display: flex; align-items: flex-start; gap: 8px; animation: pop .25s ease-out; }
+  .avatar { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--who); color: var(--surface);
+            display: grid; place-items: center; font: 700 11px var(--mono); margin-top: 2px; }
+  .outcome { margin-top: 14px; }
+  .outcome[hidden] { display: none; }
+  .outcome .head .model { font-family: inherit; }
+  .outcome .ballots { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+  .outcome .typing { margin-top: 8px; }
   .divider { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 600; color: var(--muted);
              text-transform: uppercase; letter-spacing: .05em; margin-top: 6px; }
   .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  .bubble { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--who);
-            border-radius: 10px; padding: 10px 14px; animation: pop .25s ease-out; }
+  .bubble { min-width: 0; max-width: min(88%, 760px); background: var(--bg); border: 1px solid var(--line);
+            border-radius: 4px 14px 14px 14px; padding: 8px 12px; }
   .bubble .who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
   .bubble .who b { font-family: var(--mono); color: var(--who); }
   .bubble .who small { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
   .bubble .txt { white-space: pre-wrap; word-break: break-word; margin-top: 4px; }
-  .bubble .ans { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line); font-weight: 600; }
+  .bubble .ans { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-weight: 600; }
+  .bubble .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+                   white-space: normal; }  /* compact: line breaks fold into spaces, so 3 lines show real text */
+  .bubble .ans.clamp { -webkit-line-clamp: 2; }
+  .bubble.open .clamp { display: block; overflow: visible; white-space: pre-wrap; }
+  .bubble .more { background: none; color: var(--accent); padding: 4px 0 0; font-size: 12px; font-weight: 600; }
   .bubble .tag { margin-left: 4px; }
   .ballot { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 14px; padding: 6px 2px; }
   .ballot b { font-family: var(--mono); }
@@ -296,10 +397,18 @@
 
 <div class="layout">
   <form id="form">
-    <p class="hint" id="hint"></p>
-    <label class="field"><span>Rule for every model <em>· optional</em></span>
+    <div class="prompt">
+      <textarea id="task" rows="3" aria-label="Prompt"></textarea>
+      <div class="pfoot">
+        <span>Enter to run · Shift+Enter for a new line</span>
+        <button id="go">Run</button>
+      </div>
+    </div>
+    <div class="banner" id="banner"></div>
+    <label class="field rulefield"><span>Rule for every model <em>· optional</em></span>
       <textarea id="rule" rows="1" placeholder="e.g. Answer in one sentence."></textarea>
     </label>
+    <p class="hint" id="hint"></p>
     <div class="imgzone" id="imgzone" hidden>
       <div class="ph" id="imgph" aria-hidden="true">▣</div>
       <div class="thumbs" id="thumbs" hidden></div>
@@ -337,15 +446,6 @@
       </div>
     </div>
     </div>
-    <div class="prompt">
-      <textarea id="task" rows="2" aria-label="Prompt"></textarea>
-      <div class="pfoot">
-        <span id="saveNote">Enter to run · Shift+Enter for a new line</span>
-        <button type="button" class="ghost" id="saveRun" disabled title="Save the run shown below to a file you choose">Save run</button>
-        <button id="go">Run</button>
-      </div>
-    </div>
-    <div class="banner" id="banner"></div>
   </form>
 
   <aside class="side">
@@ -353,18 +453,48 @@
       <div class="phead">
         <h2>Chain</h2>
         <button type="button" class="ghost" id="sortBig">Biggest first</button>
-        <button type="button" class="ghost" id="flip">Flip</button>
+        <button type="button" class="ghost" id="sortSmall">Smallest first</button>
       </div>
       <p class="phint" id="chainHint"></p>
+      <div class="debatebox" id="debateBox" hidden>
+        <div class="field"><span>How it ends</span>
+          <div class="strat ending" role="group" aria-label="How the debate ends">
+            <button type="button" data-ending="vote">Vote</button>
+            <button type="button" data-ending="moderator">Moderator</button>
+            <button type="button" data-ending="both">Both</button>
+          </div>
+          <p class="shint" id="endHint"></p>
+        </div>
+        <div class="row modrow" id="modRow">
+          <span class="grip" aria-hidden="true">⚖</span><span class="n"></span>
+          <span class="name"><select id="moderator" aria-label="Moderator"></select><small id="modMeta"></small></span>
+          <span class="tctl" id="modTemp"></span>
+          <span class="icon dup" aria-hidden="true"></span><span class="icon x" aria-hidden="true"></span>
+        </div>
+        <p class="modlabel">Debaters, in speaking order</p>
+      </div>
       <ol class="chainlist" id="chain"></ol>
-      <select id="add" aria-label="Add a model"></select>
+      <div class="picker" id="picker">
+        <div class="ptop">
+          <input type="search" id="psearch" placeholder="Search models to add" aria-label="Search models to add">
+          <select id="psort" aria-label="Sort models">
+            <option value="small">Smallest first</option>
+            <option value="big">Biggest first</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </div>
+        <div class="pchips" id="pchips" role="group" aria-label="Show models that can"></div>
+        <ul class="plist" id="plist"></ul>
+        <div class="pfoot2"><span id="pcount"></span></div>
+      </div>
+      <div class="tempall">
+        <span>Temperature</span>
+        <button type="button" class="ghost" id="allZero">Set all to 0</button>
+        <button type="button" class="ghost" id="allDefault">All to default</button>
+      </div>
+      <p class="phint tnote">0 gives the same answer every time; higher lets answers vary more. <b>Default</b> is the
+        temperature the model ships with, marked with a tick on its slider.</p>
       <p class="mem" id="mem"></p>
-      <label class="field" style="margin:10px 0 0"><span>Temperature</span>
-        <select id="temp" style="width:100%">
-          <option value="default">Each model's own default: answers can vary</option>
-          <option value="0">0: the same answer every time</option>
-        </select>
-      </label>
     </section>
     <section class="panel" id="visionPanel" hidden>
       <div class="phead"><h2>Vision</h2></div>
@@ -392,24 +522,14 @@
           <option value="3">3</option>
         </select>
       </label>
-      <div class="field"><span>How it ends</span>
-        <div class="strat ending" role="group" aria-label="How the debate ends">
-          <button type="button" data-ending="vote">Vote</button>
-          <button type="button" data-ending="moderator">Moderator</button>
-          <button type="button" data-ending="both">Both</button>
-        </div>
-        <p class="shint" id="endHint"></p>
-      </div>
-      <label class="field" id="modField"><span>Moderator</span>
-        <select id="moderator" style="width:100%"></select>
-      </label>
       <label class="phint" style="display:flex;gap:8px;align-items:center;margin:0">
         <input type="checkbox" id="allowSelf"> Let models vote for their own answer (to measure self-bias)
       </label>
       <p class="shint" id="roundHint"></p>
     </section>
     <details class="panel history">
-      <summary>Saved runs <span id="hcount"></span></summary>
+      <summary>Previous runs <span id="hcount"></span></summary>
+      <p class="hnote" id="hnote" aria-live="polite"></p>
       <ol id="hlist"></ol>
     </details>
   </aside>
@@ -426,7 +546,6 @@ const el = (tag, cls, text) => {
   return e;
 };
 let installed = [], unusable = [], chain = [], ramGb = 0, running = false, openId = null;
-let shownId = null;  // the saved run on screen, which "Save run" saves
 let serverModes = null;  // the modes server.py says it runs
 let current = "blind";
 // a model can be in a chain more than once: repeats are labeled "gemma3:1b #2" and share one loaded copy
@@ -535,7 +654,7 @@ const MODES = {
   orchestrator: { hint: "The top model splits your task into subtasks, the workers each do one without seeing the rest, and the top model merges their answers.",
                   placeholder: "A task with parts… e.g. How many r's are in strawberry, berry, mirror and carrot? One line per word.",
                   chain: "The top model orchestrates. The rest are workers and take subtasks in turn, so a single small worker does them all." },
-  roundtable: { hint: "Every model answers on its own, then they debate in one shared conversation. A moderator gives the verdict, the models vote, or both. The debate itself is folded away under the result.",
+  roundtable: { hint: "Every model answers on its own, then they debate in one shared conversation. A moderator gives the verdict, the models vote, or both. It reads like a group chat, with the result at the end.",
                 placeholder: "A question to discuss… e.g. How many times does the letter r appear in strawberry?",
                 chain: "Speaking order, top to bottom. Every message switches models, so small ones that fit in memory together keep it fast." },
   vision: { hint: "Several models read the same photo on their own, then a final agent combines what they found and passes it on.",
@@ -601,10 +720,14 @@ let ending = "moderator";
 function renderRoundPanel() {
   document.querySelectorAll(".strat.ending button").forEach(b => b.setAttribute("aria-pressed", b.dataset.ending === ending));
   $("#endHint").textContent = ENDS[ending];
-  $("#modField").hidden = ending === "vote";
+  $("#modRow").hidden = ending === "vote";
   const sel = $("#moderator"), keep = sel.value || (installed.some(m => m.name === "granite4.2:8b") ? "granite4.2:8b" : installed[0]?.name);
-  sel.replaceChildren(...installed.map(m => { const o = el("option", null, `${m.name} · ${m.gb} GB`); o.value = m.name; return o; }));
+  sel.replaceChildren(...installed.map(m => { const o = el("option", null, m.name); o.value = m.name; return o; }));
   if (keep) sel.value = keep;
+  if (sel.value) {  // the moderator's row: like a chain row, with its own temperature
+    const meta = $("#modMeta"); meta.replaceChildren(`${gb(sel.value)} GB · `, el("span", "job", "moderates"));
+    $("#modTemp").replaceWith(Object.assign(tempCtl("moderator", sel.value), { id: "modTemp" }));
+  }
   const need = memGb([...chain, ...(ending === "vote" ? [] : [sel.value])]);
   const tight = chain.length > 3 || (ramGb && need > ramGb * 0.6);
   $("#roundHint").textContent = chain.length < 2 ? "Add at least two models." :
@@ -624,12 +747,9 @@ function visionCards(readers, fmt, combiner, asked) {
 }
 // ---- each tab keeps its own chain, remembered in this browser ----
 const CHAINS_KEY = "model-relay:chains";
-const TEMP_KEY = "model-relay:temperature";  // remembered in this browser
 const TEMPS_KEY = "model-relay:temperatures";  // per chain entry, e.g. {"gemma3:1b #2": 1.2}
 let temps = {};
 try { temps = JSON.parse(localStorage.getItem(TEMPS_KEY)) || {}; } catch {}
-try { $("#temp").value = localStorage.getItem(TEMP_KEY) || "default"; } catch {}
-$("#temp").onchange = () => { try { localStorage.setItem(TEMP_KEY, $("#temp").value); } catch {} };
 let chains = {}, defaultChain = [];
 function chainFor(m) {
   const ok = n => installed.some(x => x.name === base(n));
@@ -662,6 +782,7 @@ function setMode(m) {
   $("#task").placeholder = MODES[m].placeholder;
   $("#visionPanel").hidden = m !== "vision";
   $("#roundPanel").hidden = m !== "roundtable";
+  $("#debateBox").hidden = m !== "roundtable";
   $("#imgzone").hidden = m !== "vision";
   $("#extractBox").hidden = m !== "vision";
   renderChain();
@@ -679,40 +800,116 @@ function remove(i) {
   if (chain.length < 2) return;
   chain.splice(i, 1); renderChain();
 }
+// Per-copy temperature, 0 to 2. No value means the model's own default: the temperature it ships with.
+const OLLAMA_TEMP = 0.8;  // what Ollama uses when a model doesn't set one (older servers don't say)
+const defTemp = name => info(name).temp ?? OLLAMA_TEMP;
+const fmtT = v => String(Math.round(v * 100) / 100);
+function saveTemps() { try { localStorage.setItem(TEMPS_KEY, JSON.stringify(temps)); } catch {} }
+function tempCtl(key, name = key) {  // key: a chain entry, or "moderator"
+  const d = defTemp(name), box = el("div", "tctl");
+  const slide = el("div", "tslide"), range = el("input"), tick = el("span", "tick");
+  range.type = "range"; range.min = 0; range.max = 2; range.step = 0.05;
+  range.setAttribute("aria-label", `Temperature for ${name}`);
+  tick.style.left = `calc(8px + (100% - 16px) * ${Math.min(2, d) / 2})`;  // where the default sits
+  tick.title = `Default: ${fmtT(d)}`;
+  slide.append(range, tick);
+  const num = el("input", "tnum"); num.type = "number"; num.min = 0; num.max = 2; num.step = 0.05;
+  num.inputMode = "decimal"; num.setAttribute("aria-label", `Temperature for ${name}, typed`);
+  const def = el("button", "tdef", "Default"); def.type = "button";
+  def.title = `Use the temperature ${name} ships with: ${fmtT(d)}`;
+  const show = () => {
+    const v = temps[key], on = v === undefined;
+    box.classList.toggle("def", on);
+    range.value = on ? d : v;
+    if (document.activeElement !== num) num.value = fmtT(on ? d : v);
+    def.setAttribute("aria-pressed", on);
+    box.title = on ? `Default temperature, ${fmtT(d)}` : `Temperature ${fmtT(v)} (default ${fmtT(d)})`;
+  };
+  const set = v => {
+    if (v === null) delete temps[key];
+    else temps[key] = Math.round(Math.min(2, Math.max(0, v)) * 100) / 100;
+    saveTemps(); show();
+  };
+  range.oninput = () => set(parseFloat(range.value));
+  num.oninput = () => { const v = parseFloat(num.value); if (!isNaN(v) && v >= 0 && v <= 2) set(v); };
+  num.onchange = () => { const v = parseFloat(num.value); set(isNaN(v) ? null : v); num.value = fmtT(temps[key] ?? d); };
+  num.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); num.blur(); } };
+  def.onclick = () => set(null);
+  box.append(el("span", "tlabel", "temp"), slide, num, def);
+  show();
+  return box;
+}
+function setAllTemps(v) {
+  [...chain, ...(current === "roundtable" ? ["moderator"] : [])].forEach(n => { if (v === null) delete temps[n]; else temps[n] = v; });
+  saveTemps(); renderChain();
+}
+$("#allZero").onclick = () => setAllTemps(0);
+$("#allDefault").onclick = () => setAllTemps(null);
+function duplicate(i) {  // a copy at the same temperature, after the copies already below it, so they count up
+  const name = nextCopy(base(chain[i]));
+  if (temps[chain[i]] !== undefined) { temps[name] = temps[chain[i]]; saveTemps(); }
+  else if (temps[name] !== undefined) { delete temps[name]; saveTemps(); }  // a stale value from an old copy
+  let at = i + 1;
+  while (at < chain.length && base(chain[at]) === base(chain[i])) at++;
+  chain.splice(at, 0, name); renderChain();
+  reveal($("#chain"), $("#chain").children[at]);
+}
+// Long lists (the chain, the catalog) show 5 rows and scroll, with a fade at the edge while there's more
+const VISIBLE_ROWS = 5;
+function fade(list) {
+  list.classList.toggle("more-above", list.scrollTop > 2);
+  list.classList.toggle("more-below", list.scrollTop + list.clientHeight < list.scrollHeight - 2);
+}
+function capRows(list) {
+  const items = [...list.children].filter(c => !c.classList.contains("empty"));
+  const last = items[VISIBLE_ROWS - 1];
+  list.style.maxHeight = items.length > VISIBLE_ROWS
+    ? `${last.offsetTop + last.offsetHeight + parseFloat(getComputedStyle(list).paddingBottom)}px` : "";
+  fade(list);
+}
+function reveal(list, item) {  // scroll a list just enough to show one of its rows
+  if (!item) return;
+  const top = item.offsetTop, bottom = top + item.offsetHeight;
+  if (top < list.scrollTop) list.scrollTop = top;
+  else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  fade(list);
+}
+$("#chain").onscroll = () => fade($("#chain"));
+let listWidth = 0;  // rows change height when the window does (one line or two), so measure again
+new ResizeObserver(([e]) => {
+  if (Math.abs(e.contentRect.width - listWidth) < 1) return;
+  listWidth = e.contentRect.width;
+  capRows($("#chain")); capRows($("#plist"));
+}).observe($("#chain"));
+$("#plist").onscroll = () => fade($("#plist"));
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let settling = false;
 function renderChain() {
   saveChains();
   $("#chainHint").textContent = MODES[current].chain;
-  const list = $("#chain"), before = {};
+  const list = $("#chain"), before = {}, scrolled = list.scrollTop;
   list.querySelectorAll(".row").forEach(r => before[r.dataset.name] = r.getBoundingClientRect().top);
   list.replaceChildren();
   chain.forEach((name, i) => {
     const row = el("li", "row");
     row.tabIndex = 0; row.dataset.i = i; row.dataset.name = name;
     row.setAttribute("aria-label", `Layer ${i + 1}: ${name}. Arrow keys move it, Delete removes it.`);
-    const label = el("span", "name", name); label.append(el("small", null, `${gb(name)} GB`));
-    row.append(el("span", "grip", "⋮⋮"), el("span", "n", `${i + 1}`), label);
+    const label = el("span", "name", name), small = el("small", null, `${gb(name)} GB`);
     const sees = info(name).vision;
-    if (current === "orchestrator") {
-      row.append(el("span", "job", i === 0 ? "orchestrates" : "works"));
-    } else if (current === "vision") {
-      if (!sees) row.classList.add("off");
-      row.append(el("span", "eye", sees ? "reads" : "can't see images"));
-    } else row.append(el("span"));
-    const t = el("input", "temp"); t.inputMode = "decimal"; t.placeholder = "temp"; t.value = temps[name] ?? "";
-    t.title = "This copy's temperature, 0 to 2. Leave it blank to use the Temperature setting below.";
-    t.setAttribute("aria-label", `Temperature for ${name}`);
-    t.onchange = () => {
-      const v = parseFloat(t.value);
-      if (t.value.trim() === "" || isNaN(v)) { delete temps[name]; t.value = ""; }
-      else { temps[name] = Math.min(2, Math.max(0, v)); t.value = temps[name]; }
-      try { localStorage.setItem(TEMPS_KEY, JSON.stringify(temps)); } catch {}
-    };
-    row.append(t);
-    const x = el("button", null, "✕"); x.type = "button"; x.title = "Remove"; x.disabled = chain.length < 2;
+    const job = current === "orchestrator" ? ["job", i === 0 ? "orchestrates" : "works"]
+              : current === "vision" ? ["eye", sees ? "reads" : "can't see images"] : null;
+    if (job) small.append(" · ", el("span", job[0], job[1]));
+    if (current === "vision" && !sees) row.classList.add("off");
+    label.append(small);
+    row.append(el("span", "grip", "⋮⋮"), el("span", "n", `${i + 1}`), label, tempCtl(name));
+    const dup = el("button", "icon dup", "⧉"); dup.type = "button";
+    dup.title = `Add a copy of ${base(name)} (no extra memory)`; dup.setAttribute("aria-label", dup.title);
+    dup.onclick = () => duplicate(i);
+    const x = el("button", "icon x", "✕"); x.type = "button"; x.disabled = chain.length < 2;
+    x.title = chain.length < 2 ? "The chain needs at least one model" : `Remove ${name}`;
+    x.setAttribute("aria-label", `Remove ${name}`);
     x.onclick = () => remove(i);
-    row.append(x);
+    row.append(dup, x);
     row.onpointerdown = e => drag(e, row, i);
     row.onkeydown = e => {
       if (e.target !== row) return;
@@ -722,6 +919,7 @@ function renderChain() {
     };
     list.append(row);
   });
+  capRows(list); list.scrollTop = scrolled; fade(list);
   // slide every row from where it was to where it is now
   if (!reduceMotion) list.querySelectorAll(".row").forEach(r => {
     const d = (before[r.dataset.name] ?? r.getBoundingClientRect().top) - r.getBoundingClientRect().top;
@@ -731,22 +929,12 @@ function renderChain() {
     r.style.transition = ""; r.style.transform = "";
   });
 
-  const seeing = current === "vision";  // the Vision tab only offers models that can see images
-  const add = $("#add"), rest = installed.filter(m => !seeing || m.vision);
-  const first = el("option", null, rest.length ? (seeing ? "+ Add a model that can see images" : "+ Add a model")
-                                              : "No models that can see images are installed");
-  first.value = ""; add.replaceChildren(first);
-  rest.forEach(m => {
-    const copies = chain.filter(n => base(n) === m.name).length;
-    const o = el("option", null, `${m.name} · ${copies ? `add copy #${copies + 1} (no extra memory)` : `${m.gb} GB`}`);
-    o.value = m.name; add.append(o);
-  });
-  add.disabled = !rest.length;
+  renderPicker();
 
   const total = memGb(chain), tight = ramGb && total > ramGb * 0.6, kinds = new Set(chain.map(base)).size;
   $("#mem").textContent = `${chain.length} models${kinds < chain.length ? ` (${kinds} different)` : ""} · ${total.toFixed(1)} GB` +
     (ramGb ? ` · your Mac has ${ramGb} GB` : "") +
-    (tight ? ". Not all of them fit in memory at once, so they'll take turns loading, which is slower." : "");
+    (tight ? ". Not all of them fit in memory at once, so they'll take turns loading, which is slower." : ".");
   $("#mem").classList.toggle("tight", !!tight);
   if (unusable.length) $("#mem").append(el("span", "nf", ` Not shown: ${unusable.join(", ")} (can't write text, so no mode can use ${unusable.length > 1 ? "them" : "it"}).`));
   renderCombiner();
@@ -758,22 +946,86 @@ function renderCombiner(pick) {
   if (keep) sel.value = keep;
   renderStrategy();
 }
-$("#add").onchange = e => { if (e.target.value) { chain.push(nextCopy(e.target.value)); renderChain(); } };
 $("#sortBig").onclick = () => { chain.sort((a, b) => gb(b) - gb(a)); renderChain(); };
-$("#flip").onclick = () => { chain.reverse(); renderChain(); };
+$("#sortSmall").onclick = () => { chain.sort((a, b) => gb(a) - gb(b)); renderChain(); };
+
+// ---- "+ Add a model": the installed models as a catalog: search, filter by what they can do, sort,
+// and a - count + stepper per model, so adding a copy or taking one out is one click ----
+const CAPS = [["vision", "Vision"], ["thinking", "Thinking"], ["tools", "Tools"], ["audio", "Audio"], ["ocr", "OCR"]];
+const capsOf = m => m.caps || [...(m.vision ? ["vision"] : []), ...(m.tools ? ["tools"] : [])];  // older servers
+const can = (m, c) => c === "all" || (c === "ocr" ? /ocr/i.test(m.name) : capsOf(m).includes(c));
+const catalog = { q: "", cap: "all", sort: "small" };
+$("#psearch").onkeydown = e => { if (e.key === "Escape") { $("#psearch").value = ""; $("#psearch").oninput(); } };
+const refilter = () => { renderPicker(); $("#plist").scrollTop = 0; fade($("#plist")); };
+$("#psearch").oninput = () => { catalog.q = $("#psearch").value.trim().toLowerCase(); refilter(); };
+$("#psort").onchange = () => { catalog.sort = $("#psort").value; refilter(); };
+function addCopy(name) {  // a new copy goes after the model's other copies; a new model at the end
+  const last = chain.findLastIndex(n => base(n) === name), at = last < 0 ? chain.length : last + 1;
+  chain.splice(at, 0, nextCopy(name)); renderChain();
+  reveal($("#chain"), $("#chain").children[at]);
+}
+function removeCopy(name) {  // the last copy of this model in the chain
+  const i = chain.findLastIndex(n => base(n) === name);
+  if (i >= 0 && chain.length > 1) { chain.splice(i, 1); renderChain(); }
+}
+function renderPicker() {
+  const seeing = current === "vision";  // the Vision tab only lets you add models that can see images
+  const focused = document.activeElement?.dataset?.pk;  // keep focus on the button just pressed
+  $("#pchips").replaceChildren(...[["all", "All"], ...CAPS].map(([c, label]) => {
+    const n = installed.filter(m => can(m, c)).length;
+    if (!n) return "";
+    const b = el("button", "chip", label); b.type = "button"; b.append(el("small", null, n));
+    b.setAttribute("aria-pressed", catalog.cap === c);
+    b.onclick = () => { catalog.cap = c; refilter(); };
+    return b;
+  }));
+  const order = { small: (a, b) => a.gb - b.gb, big: (a, b) => b.gb - a.gb, name: (a, b) => a.name.localeCompare(b.name) };
+  const shown = installed.filter(m => can(m, catalog.cap) && m.name.toLowerCase().includes(catalog.q))
+    .sort((a, b) => (seeing ? !a.vision - !b.vision : 0) || order[catalog.sort](a, b));
+  const list = $("#plist"), scrolled = list.scrollTop;
+  list.replaceChildren(...shown.map(m => {
+    const copies = chain.filter(n => base(n) === m.name).length, off = seeing && !m.vision;
+    const li = el("li", "pitem" + (copies ? " inchain" : "") + (off ? " off" : ""));
+    const nm = el("div", "pname"), meta = el("small", null, `${m.gb} GB`);
+    CAPS.filter(([c]) => can(m, c)).forEach(([c]) => meta.append(el("span", "badge " + c, c)));
+    if (off) meta.append("· can't see images");
+    nm.append(el("b", null, m.name), meta); nm.title = m.name;
+    const step = el("div", "stepper");
+    const btn = (cls, text, label, fn, pk) => {
+      const b = el("button", cls, text); b.type = "button"; b.dataset.pk = `${m.name}|${pk}`;
+      b.setAttribute("aria-label", label); b.title = label; b.onclick = fn; return b;
+    };
+    if (!copies) {
+      const a = btn("padd", "Add", `Add ${m.name}`, () => addCopy(m.name), "plus"); a.disabled = off;
+      step.append(a);
+    } else {
+      const minus = btn(null, "−", `Remove a copy of ${m.name}`, () => removeCopy(m.name), "minus");
+      minus.disabled = chain.length < 2;
+      const plus = btn(null, "+", `Add another copy of ${m.name} (no extra memory)`, () => addCopy(m.name), "plus");
+      plus.disabled = off;
+      step.append(minus, el("span", "cnt", copies), plus);
+    }
+    li.append(nm, step);
+    return li;
+  }));
+  if (!shown.length) list.append(el("li", "empty", "No models match."));
+  capRows(list); list.scrollTop = scrolled; fade(list);
+  $("#pcount").textContent = `${shown.length} of ${installed.length} models`;
+  const again = focused && [...list.querySelectorAll("button")].find(b => b.dataset.pk === focused)
+    || focused && [...list.querySelectorAll("button")].find(b => b.dataset.pk === focused.replace(/\|minus$/, "|plus"));
+  if (again) again.focus();
+}
 
 function drag(e, row, from) {
   if (e.button !== 0 || e.target.closest("button, select, input") || settling) return;
-  const rows = [...$("#chain").children], tops = rows.map(r => r.getBoundingClientRect().top);
+  const list = $("#chain"), rows = [...list.children], tops = rows.map(r => r.offsetTop);  // within the list
   const step = rows.length > 1 ? tops[1] - tops[0] : 0;  // rows are all the same height
-  const x0 = e.clientX, y0 = e.clientY;
-  let to = from, moved = false;
+  const x0 = e.clientX, y0 = e.clientY, s0 = list.scrollTop;
+  let to = from, moved = false, y = y0, timer = 0;
   row.setPointerCapture(e.pointerId);
-  const onMove = ev => {
-    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;  // still a click
-    if (!moved) { moved = true; row.classList.add("lifted"); }
+  const place = () => {
     const dy = Math.max(tops[0] - tops[from] - step / 3,
-                        Math.min(tops[tops.length - 1] - tops[from] + step / 3, ev.clientY - y0));
+                        Math.min(tops[tops.length - 1] - tops[from] + step / 3, y - y0 + list.scrollTop - s0));
     row.style.transform = `translateY(${dy}px)`;
     to = step ? Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / step))) : from;
     rows.forEach((r, j) => {
@@ -782,8 +1034,28 @@ function drag(e, row, from) {
       r.style.transform = shift ? `translateY(${shift}px)` : "";
     });
   };
+  // held near the top or bottom of the list, it scrolls, so a row can go past what's showing
+  const edge = () => {
+    if (list.scrollHeight <= list.clientHeight) return 0;
+    const r = list.getBoundingClientRect();
+    return y < r.top + 32 ? -6 : y > r.bottom - 32 ? 6 : 0;
+  };
+  const tick = () => {
+    const v = edge(), was = list.scrollTop;
+    if (v) list.scrollTop += v;
+    if (!v || list.scrollTop === was) { clearInterval(timer); timer = 0; return; }
+    place(); fade(list);
+  };
+  const onMove = ev => {
+    y = ev.clientY;
+    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;  // still a click
+    if (!moved) { moved = true; row.classList.add("lifted"); }
+    place();
+    if (!timer && edge()) timer = setInterval(tick, 16);
+  };
   const onUp = () => {
     row.removeEventListener("pointermove", onMove);
+    clearInterval(timer); timer = 0;
     if (!moved) return;
     settling = true;
     row.classList.remove("lifted");  // brings the transition back, so it eases into the slot
@@ -885,9 +1157,19 @@ function addMsg(n, cls, label, meta, text, opts) {  // for cards that collect se
 }
 const photoName = p => p === null ? "all photos" : p === undefined ? "the photo" : `photo ${p + 1}`;
 
-// ---- debate: the discussion is a group chat inside a fold; the verdict goes on top ----
+// ---- debate: a group chat in rounds ("See Debate" hides it all), then the vote and the verdict in their own cards ----
 const WHO = ["--accent", "--up", "--violet", "--teal", "--warn", "--pink", "--bad"];
+const VIEWS = { rounds: "Rounds", compact: "Compact", full: "Full" };  // rounds folded / messages cut short / everything
+const SEE_KEY = "model-relay:debate-open", VIEW_KEY = "model-relay:debate-view";  // remembered in this browser
+const stored = (k, fallback) => { try { return localStorage.getItem(k) || fallback; } catch { return fallback; } };
+const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let room = null;
+function outcomeCard(title) {
+  const c = el("section", "node outcome"), h = el("div", "head");
+  c.status = el("span", "status", ""); h.append(el("span", "model", title), c.status);
+  c.body = el("div"); c.append(h, c.body); c.hidden = true;
+  return c;
+}
 function renderRoom(task, rule, models) {
   const stage = $("#stage"); stage.replaceChildren(); nodes = []; wires = [];
   you = el("div", "node you");
@@ -896,55 +1178,107 @@ function renderRoom(task, rule, models) {
   if (rule) { const r = el("div", "msg down show"); r.append(lbl("Rule for every model"), el("div", "txt", rule)); you.append(r); }
   const m = el("div", "msg down show"); m.append(lbl("Question for the debate"), el("div", "txt", task)); you.append(m);
   you.answer = el("div", "msg up"); you.append(you.answer);
-  room = { box: el("div", "room"), colors: {}, last: null, typing: el("div", "typing"),
-           log: el("details", "debatelog"), sum: el("summary"), said: 0, changed: 0 };
+  room = { box: el("div", "room"), colors: {}, rounds: {}, typing: el("div", "typing"), count: el("small"),
+           said: 0, changed: 0, view: stored(VIEW_KEY, "compact"), chat: el("section", "chat"),
+           vote: outcomeCard("The vote"), verdict: outcomeCard("Moderator's verdict") };
+  room.vote.top = el("div"); room.vote.ballots = el("div", "ballots"); room.vote.ballots.hidden = true;
+  room.vote.body.append(room.vote.top, room.vote.ballots);
   models.forEach((name, i) => room.colors[name] = `var(${WHO[i % WHO.length]})`);
   room.typing.hidden = true;
-  room.log.append(room.sum, room.box);
-  countDebate();
-  stage.append(you, room.typing, room.log);
+  // the whole chat folds away under "See Debate"
+  const head = el("div", "chathead"), see = el("button", "seetoggle", "See Debate"); see.type = "button";
+  see.append(room.count);
+  const setSee = open => { room.chat.classList.toggle("shut", !open); see.setAttribute("aria-expanded", open); store(SEE_KEY, open ? "open" : "shut"); };
+  see.onclick = () => setSee(room.chat.classList.contains("shut"));
+  const views = el("div", "strat views"); views.setAttribute("role", "group"); views.setAttribute("aria-label", "How much of the debate to show");
+  Object.entries(VIEWS).forEach(([v, label]) => {
+    const b = el("button", null, label); b.type = "button"; b.dataset.view = v; b.onclick = () => setView(v); views.append(b);
+  });
+  room.views = views;
+  head.append(see, views);
+  room.chat.append(head, room.box);
+  setSee(stored(SEE_KEY, "open") === "open");
+  countDebate(); paintViews();
+  stage.append(you, room.chat, room.vote, room.verdict);
+}
+function paintViews() { room.views.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.view === room.view)); }
+function setView(v) {  // Rounds folds every round; Compact and Full open them, with messages cut short or whole
+  room.view = v; store(VIEW_KEY, v); paintViews();
+  Object.values(room.rounds).forEach(o => setRound(o, v === "rounds"));
+  room.box.querySelectorAll(".bubble").forEach(b => b.setOpen?.(v === "full"));
 }
 function countDebate() {
-  room.sum.replaceChildren("Show the debate", el("small", null,
-    `${room.said} message${room.said === 1 ? "" : "s"}` + (room.changed ? ` · ${room.changed} change${room.changed === 1 ? "" : "s"} of mind` : "")));
+  room.count.textContent = `${room.said} message${room.said === 1 ? "" : "s"}` +
+    (room.changed ? ` · ${room.changed} change${room.changed === 1 ? "" : "s"} of mind` : "");
 }
-function divider(key, text) {
-  if (room.last === key) return;
-  room.last = key; room.box.append(el("div", "divider", text));
+function roundGroup(r) {  // each round folds on its own: click its divider
+  if (room.rounds[r]) return room.rounds[r];
+  const g = el("div", "round"), btn = el("button", "divider"), body = el("div", "rbody");
+  btn.type = "button"; g.append(btn, body); room.box.append(g);
+  const o = room.rounds[r] = { g, btn, body, n: 0, changed: 0,
+                               name: r === 0 ? "Round 0 · everyone answers alone" : `Round ${r} · discussion` };
+  btn.onclick = () => setRound(o, !g.classList.contains("shut"));
+  setRound(o, room.view === "rounds");
+  return o;
 }
-function bubble(who, meta, text, extra = []) {
-  const b = el("div", "bubble"); b.style.setProperty("--who", room.colors[who] || "var(--muted)");
-  const top = el("div", "who"); top.append(el("b", null, who), ...extra, el("small", null, meta));
-  b.append(top, el("div", "txt", text)); room.box.append(b);
+function setRound(o, shut) { o.g.classList.toggle("shut", shut); o.btn.setAttribute("aria-expanded", !shut); paintRound(o); }
+function paintRound(o) {
+  const shut = o.g.classList.contains("shut");
+  o.btn.textContent = `${shut ? "▸" : "▾"} ${o.name}` + (shut ? ` · ${o.n} message${o.n === 1 ? "" : "s"}` +
+    (o.changed ? ` · ${o.changed} changed their mind` : "") : "");
+}
+const initials = name => { const b = base(name).replace(/[^a-z0-9]/gi, ""), k = name.match(/#(\d+)$/);
+  return b.charAt(0).toUpperCase() + b.charAt(1) + (k ? k[1] : ""); };
+function bubble(into, who, meta, text, extra = [], answer = null) {
+  const row = el("div", "say"), av = el("span", "avatar", initials(who));
+  row.style.setProperty("--who", room.colors[who] || "var(--muted)"); av.title = who;
+  const b = el("div", "bubble"), top = el("div", "who"); top.append(el("b", null, who), ...extra, el("small", null, meta));
+  b.append(top, el("div", "txt clamp", text));
+  if (answer != null) b.append(el("div", "ans clamp", "My answer: " + answer));
+  row.append(av, b); into.append(row);
+  // compact: a few lines each; "Show more" only where something is cut
+  if ([...b.querySelectorAll(".clamp")].some(c => c.scrollHeight > c.clientHeight + 1)) {
+    const more = el("button", "more", "Show more"); more.type = "button";
+    b.setOpen = open => { b.classList.toggle("open", open); more.textContent = open ? "Show less" : "Show more"; };
+    more.onclick = () => b.setOpen(!b.classList.contains("open"));
+    b.append(more);
+    if (room.view === "full") b.setOpen(true);
+  }
   return b;
 }
+function verdictBox(text) { const v = el("div", "msg up show"); v.append(el("div", "txt", text)); return v; }
 function roomHandle(e) {
-  const roundName = r => r === 0 ? "Round 0 · everyone answers alone" : `Round ${r} · discussion`;
+  const where = { say: room.box, ballot: room.vote.body, moderate: room.verdict.body };
   if (e.type === "call") {
-    if (e.dir === "say") divider("r" + e.round, roundName(e.round));
-    if (e.dir === "ballot") divider("vote", "The vote");
+    if (e.dir === "say") roundGroup(e.round);
+    if (e.dir === "ballot") room.vote.hidden = false;
+    if (e.dir === "moderate") { room.verdict.hidden = false; room.verdict.status.textContent = e.model; }
     room.typing.hidden = false;
     room.typing.textContent = e.dir === "say" ? `${e.model} is ${e.round === 0 ? "answering" : `debating (round ${e.round})`}…`
       : `${e.model} is ${e.dir === "ballot" ? "voting" : "weighing the debate"}…`;
+    (where[e.dir] || room.box).append(room.typing);
     room.typing.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return;
   }
   room.typing.hidden = true;
   const meta = `${e.secs}s · ${e.tok_s} tok/s` + (e.load >= 0.5 ? ` · ${e.load}s loading` : "") + (e.cut ? " · cut off" : "");
   if (e.dir === "say") {
-    divider("r" + e.round, roundName(e.round));
-    const b = bubble(e.model, meta, e.sent, e.changed ? [el("span", "tag sab", "changed their mind")] : []);
-    b.append(el("div", "ans", "My answer: " + e.answer));
+    const o = roundGroup(e.round);
+    bubble(o.body, e.model, meta, e.sent, e.changed ? [el("span", "tag sab", "changed their mind")] : [], e.answer);
+    o.n++; o.changed += !!e.changed; paintRound(o);
     room.said++; room.changed += !!e.changed; countDebate();
   } else if (e.dir === "ballot") {
-    divider("vote", "The vote");
+    room.vote.hidden = false; room.vote.ballots.hidden = false;
     const row = el("div", "ballot"), who = el("b", null, e.model);
     who.style.color = room.colors[e.model];
     row.append(who, el("div", null, e.spoiled ? "spoiled ballot (couldn't read the vote)" : `voted for ${e.for}`));
     if (e.reason) row.append(el("span", null, e.reason));
-    room.box.append(row);
+    room.vote.ballots.append(row);
+    const n = room.vote.ballots.children.length;
+    room.vote.status.textContent = `${n} ballot${n === 1 ? "" : "s"}`;
   } else if (e.dir === "moderate") {
-    room.verdict = { model: e.model, meta, text: e.sent };  // shown on top when the run finishes
+    room.verdict.hidden = false; room.verdict.status.textContent = `${e.model} · ${meta}`;
+    room.verdict.body.replaceChildren(verdictBox(e.sent));
   }
 }
 
@@ -1034,21 +1368,27 @@ function finish(e) {
   } else if (e.mode === "roundtable") {
     if (room) room.typing.hidden = true;
     const w = e.winners || [];
-    if (e.tally) {
-      parts.push(lbl(w.length === 1 ? "Winner" : w.length ? "Tie" : "No winner"));
-      if (w.length === 1) parts.push(el("div", "final", `${w[0]}: ${e.answers[w[0]]}`));
-      else if (w.length) parts.push(el("div", "txt", w.map(m => `${m}: ${e.answers[m]}`).join("\n")));
+    if (e.tally && room) {  // the vote card: who won, the tally, then each ballot
+      const top = [el("div", "msg up show")], box = top[0];
+      box.append(lbl(w.length === 1 ? "Winner" : w.length ? "Tie" : "No winner"));
+      if (w.length === 1) box.append(el("div", "final", `${w[0]}: ${e.answers[w[0]]}`));
+      else if (w.length) box.append(el("div", "txt", w.map(m => `${m}: ${e.answers[m]}`).join("\n")));
       const t = el("div", "tally"), most = Math.max(1, ...Object.values(e.tally));
       Object.entries(e.tally).forEach(([m, c]) => {
         const bar = el("div", "bar"), fill = el("i"); fill.style.width = `${(c / most) * 100}%`; bar.append(fill);
         t.append(el("span", null, m), bar, el("span", null, `${c} vote${c === 1 ? "" : "s"}`));
       });
-      parts.push(t);
+      room.vote.top.replaceChildren(box, t); room.vote.hidden = false;
     }
-    if (e.summary) {
-      const v = room?.verdict;
-      parts.unshift(lbl(`Moderator's verdict · ${e.moderator}`, v?.meta), el("div", "txt", e.summary));
+    if (e.summary && room && !room.verdict.body.childNodes.length) {  // runs replayed without the moderator's step
+      room.verdict.body.replaceChildren(verdictBox(e.summary)); room.verdict.hidden = false;
     }
+    const jumpTo = (card, text) => { const a = el("a", "ghost btnlink", text); a.href = "#";
+      a.onclick = ev => { ev.preventDefault(); card.scrollIntoView({ block: "start", behavior: "smooth" }); }; return a; };
+    const links = el("div", "fbtns");
+    if (e.tally && room) links.append(jumpTo(room.vote, "Jump to the vote ↓"));
+    if (e.summary && room) links.append(jumpTo(room.verdict, "Jump to the verdict ↓"));
+    parts.push(lbl("Done"), links);
     parts.push(el("div", "stats", `${e.minds_changed} change${e.minds_changed === 1 ? "" : "s"} of mind · ${e.rounds} discussion round${e.rounds === 1 ? "" : "s"}` +
                                     (e.allow_self ? " · self-votes allowed" : "")));
     parts.push(el("div", "stats", `${e.secs}s · ${e.calls} model calls`));
@@ -1094,7 +1434,6 @@ function finish(e) {
     parts.push(el("div", "stats", `Temperature: ${e.temperature === null ? "each model's own default" : e.temperature}` +
       Object.entries(e.temperatures || {}).map(([m, t]) => ` · ${m} at ${t ?? "its own default"}`).join("")));
   parts.push(el("div", "stats", e.id ? `Saved ${e.time.replace("T", " ")} · runs/${e.id}.json` : "Not saved"));
-  setShown(e.id || null);
   if (e.id) {  // readable copies of the run
     const row = el("div", "fbtns"); row.style.marginTop = "8px";
     const page = el("a", "ghost btnlink", "Open report"); page.href = `/runs/${encodeURIComponent(e.id)}.html`; page.target = "_blank";
@@ -1110,7 +1449,7 @@ function finish(e) {
 }
 
 async function run(task) {
-  running = true; $("#go").disabled = true; warn(""); setShown(null);
+  running = true; $("#go").disabled = true; warn("");
   const rule = $("#rule").value.trim(), m = current;
   openId = null;
   const readers = chain.filter(n => info(n).vision);
@@ -1119,8 +1458,11 @@ async function run(task) {
     renderStage(task, rule, cards.names, m, images.map(i => i.url), cards.roles);
   } else if (m === "roundtable") renderRoom(task, rule, chain);
   else renderStage(task, rule, chain, m);
-  const params = { task, chain: chain.join(","), mode: m, rule, temperature: $("#temp").value,
-                   temps: Object.fromEntries(chain.filter(n => temps[n] !== undefined).map(n => [n, temps[n]])),
+  // models outside the chain (final agent, moderator) run at their own default, unless every copy is at 0
+  const allZero = chain.every(n => temps[n] === 0);
+  const params = { task, chain: chain.join(","), mode: m, rule, temperature: allZero ? "0" : "default",
+                   temps: { ...Object.fromEntries(chain.filter(n => temps[n] !== undefined).map(n => [n, temps[n]])),
+                            ...(m === "roundtable" && ending !== "vote" ? { moderator: temps.moderator ?? "default" } : {}) },
                    ...(m === "vision" ? { images: images.map(i => i.b64), format: $("#format").value,
                                           combiner: $("#combiner").value, strategy,
                                           fields: fieldSpec.filter(f => f.name.trim()) } : {}),
@@ -1166,37 +1508,32 @@ $("#form").onsubmit = ev => {
   if (task) run(task);
 };
 
-// ---- "Save run": write the run on screen to a file the user picks ----
-const KEYS = "Enter to run · Shift+Enter for a new line";
-function setShown(id) {
-  shownId = id; $("#saveRun").disabled = !id;
-  $("#saveNote").textContent = KEYS;
-}
-async function saveRun() {
-  if (!shownId) return;
-  const note = t => $("#saveNote").textContent = t;
+// ---- Save: write a previous run to a file the user picks ----
+async function saveRun(id, button) {
+  const note = t => { $("#hnote").textContent = t; };
+  const done = text => { button.textContent = text; setTimeout(() => { button.textContent = "Save"; }, 2500); };
   if (window.showSaveFilePicker) {  // Chrome, Edge, Arc: the browser's own Save dialog
     let handle;
     try {
-      handle = await showSaveFilePicker({ suggestedName: `${shownId}.md`, types: [
+      handle = await showSaveFilePicker({ suggestedName: `${id}.md`, types: [
         { description: "Markdown (readable text)", accept: { "text/markdown": [".md"] } },
         { description: "Web page (open in a browser, print to PDF)", accept: { "text/html": [".html"] } }] });
     } catch (err) { if (err.name !== "AbortError") note("Couldn't open the Save dialog: " + err.message); return; }
     const ext = /\.html?$/i.test(handle.name) ? "html" : "md";
-    const text = await (await fetch(`/runs/${encodeURIComponent(shownId)}.${ext}`)).text();
+    const text = await (await fetch(`/runs/${encodeURIComponent(id)}.${ext}`)).text();
     const w = await handle.createWritable(); await w.write(text); await w.close();
-    return note(`Saved as ${handle.name}`);
+    note(`Saved as ${handle.name}`); return done("Saved ✓");
   }
   note("Choose where to save it in the Save window…");  // Safari: the Mac's Save dialog, opened by the server
   try {
     const r = await (await fetch("/save", { method: "POST", headers: { "Content-Type": "application/json" },
-                                           body: JSON.stringify({ id: shownId }) })).json();
-    note(r.path ? `Saved to ${r.path.replace(/^\/Users\/[^/]+/, "~")}` : r.cancelled ? KEYS : "Couldn't save: " + r.error);
+                                           body: JSON.stringify({ id }) })).json();
+    note(r.path ? `Saved to ${r.path.replace(/^\/Users\/[^/]+/, "~")}` : r.cancelled ? "" : "Couldn't save: " + r.error);
+    if (r.path) done("Saved ✓");
   } catch (err) { note("Couldn't save: " + err.message); }
 }
-$("#saveRun").onclick = saveRun;
 
-// ---- saved runs ----
+// ---- previous runs: every run is kept in runs/ as JSON; Save writes a readable copy elsewhere ----
 function summary(r) {
   if (r.mode === "blind") return `${r.calls} answers`;
   if (r.mode === "orchestrator") return `${(r.subtasks || []).length} subtasks → ${String(r.answer).split("\n")[0]}`;
@@ -1216,17 +1553,20 @@ async function loadHistory() {
   runs = runs.filter(r => MODES[r.mode]);  // runs from modes this page no longer has
   $("#hcount").textContent = `(${runs.length})`;
   const list = $("#hlist");
-  if (!runs.length) return list.replaceChildren(el("li", "empty", "Nothing yet. Every run you do is saved here."));
+  if (!runs.length) return list.replaceChildren(el("li", "empty", "Nothing yet. Every run you do shows up here."));
   list.replaceChildren(...runs.map(r => {
-    const b = el("button");
-    b.className = r.id === openId ? "current" : "";
+    const b = el("button", "open" + (r.id === openId ? " current" : ""));
     const tag = [r.mode, r.mode === "roundtable" ? "debate" : r.mode];
     b.append(el("span", "tag " + tag[0], tag[1]), el("span", "q", r.task || (r.mode === "vision" ? "Read a photo" : "")),
              el("span", "a", `${r.time.slice(5, 16).replace("T", " ")} · ` + summary(r) +
                              ` · ${r.chain.length} models · ${r.secs}s` + (r.rule ? ` · rule: ${r.rule}` : "")));
     b.title = r.task;
     b.onclick = () => openRun(r.id);
-    const li = el("li"); li.append(b); return li;
+    const save = el("button", "ghost hsave", "Save"); save.type = "button";
+    save.title = "Save this run to a file you choose (Markdown, or a web page you can print to PDF)";
+    save.setAttribute("aria-label", `Save the run: ${r.task || "photo"}`);
+    save.onclick = () => saveRun(r.id, save);
+    const li = el("li"); li.append(b, save); return li;
   }));
 }
 
@@ -1249,8 +1589,11 @@ async function openRun(id) {
   if (imgUrls.length) Promise.all(imgUrls.map(u => fetch(u).then(x => x.blob())))  // put the photos back so Run repeats the run
     .then(blobs => { images = []; return takeImages(blobs.map((b, i) => new File([b], `photo ${i + 1} from this run`, { type: "image/jpeg" }))); })
     .catch(() => {});
-  $("#temp").value = r.temperature === null ? "default" : "0";  // older runs have no setting and were at 0
-  Object.entries(r.temperatures || {}).forEach(([m, t]) => { if (t != null) temps[m] = t; });
+  [...r.chain, ...(r.moderator ? ["moderator"] : [])].forEach(n => {  // each copy's temperature as it ran; runs older than the setting were all at 0
+    const t = (r.temperatures || {})[n] !== undefined ? r.temperatures[n] : r.temperature === undefined ? 0 : r.temperature;
+    if (t == null) delete temps[n]; else temps[n] = t;
+  });
+  saveTemps();
   const missing = r.chain.filter(n => !installed.some(m => m.name === base(n)));
   if (missing.length) warn("Not installed any more: " + missing.join(", "));
   setMode(r.mode);  // switch tabs first, so the run's chain lands in its own tab

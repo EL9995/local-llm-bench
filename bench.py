@@ -288,15 +288,26 @@ def word_match(a, b):
 
 # ---- vision mode ----
 
-_caps = {}
+_shown = {}
+
+
+def show(model):
+    """What Ollama knows about a model: capabilities, parameters, ... Asked once per model."""
+    model = base(model)
+    if model not in _shown:
+        _shown[model] = post("/api/show", {"model": model})
+    return _shown[model]
 
 
 def capabilities(model):
-    """What a model can do, e.g. ["completion", "vision", "tools"]. Asked once per model."""
-    model = base(model)
-    if model not in _caps:
-        _caps[model] = post("/api/show", {"model": model}).get("capabilities", [])
-    return _caps[model]
+    """What a model can do, e.g. ["completion", "vision", "tools"]."""
+    return show(model).get("capabilities", [])
+
+
+def default_temperature(model):
+    """The temperature a model ships with (set in its Modelfile), else Ollama's own default, 0.8."""
+    m = re.search(r"^temperature\s+(\S+)", show(model).get("parameters") or "", re.M)
+    return float(m.group(1)) if m else 0.8
 
 
 FORMATS = ["text", "markdown", "json", "fields"]
@@ -682,8 +693,14 @@ def roundtable(task, chain, rule="", on_event=lambda e: None, rounds=2, ending="
         if ending == "both":
             votes = "\nThe models then voted: " + ", ".join(f"{m} {c}" for m, c in extra["tally"].items()) + ".\n"
         on_event({"type": "call", "dir": "moderate", "layer": k, "model": moderator})
-        out, secs, tps = ask(moderator, MODERATE_PROMPT.format(task=task, transcript=transcript(), votes=votes),
-                             "bottom", rule, VISION_TOKENS, num_ctx=COMBINE_CTX)
+        temps = TEMPERATURES.get()  # the moderator's own setting, apart from any copy of it in the chain
+        token = TEMPERATURES.set({**temps, moderator: temps["moderator"]}) if "moderator" in temps else None
+        try:
+            out, secs, tps = ask(moderator, MODERATE_PROMPT.format(task=task, transcript=transcript(), votes=votes),
+                                 "bottom", rule, VISION_TOKENS, num_ctx=COMBINE_CTX)
+        finally:
+            if token:
+                TEMPERATURES.reset(token)
         extra.update(moderator=moderator, summary=out["answer"])
         answer = tagged(out["answer"], "final answer") or answer or my_answer(out["answer"])
         step({"dir": "moderate", "layer": k, "model": moderator, "sent": out["answer"], "secs": secs,

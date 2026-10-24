@@ -68,15 +68,19 @@ the command line, or `python3 harness.py orchestrator` to score the orchestrator
   they debate in one shared conversation for a few rounds; each turn sees everything said so far.
   Each model says whether it changed its mind. It ends with a moderator's verdict, a vote (answers
   anonymous and shuffled per voter, no voting for yourself unless you allow it, a strict reply
-  format, counted by code), or both. The page shows the verdict and keeps the debate itself folded
-  away until you open it.
+  format, counted by code), or both. How it ends and the moderator (a row like the debaters', with
+  its own temperature) sit at the top of the chain. The debate reads as a group chat under
+  **See Debate**, which folds it away; each round folds on its own, and Rounds / Compact / Full
+  sets how much shows. The vote and the moderator's verdict follow in their own cards, verdict last.
 
-The chain can be in any order (drag the models on the page, or `--chain`). **Copies and
-temperature:** add the same model as often as you like; copies are labeled `gemma3:1b #2`, `#3`
-and share one loaded copy in memory. The page's Temperature setting is each model's own default
-(answers vary from run to run) or 0 (the same answer every time), and the small box on each chain
-row sets one copy's temperature on its own, so a careful copy at 0 can debate a loose one at 1.2.
-Every run records the temperatures it used.
+The chain can be in any order (drag the models on the page, or `--chain`). **Add a model** opens
+a catalog of what's installed, with search, filters for what each model can do (vision, thinking,
+tools, audio, OCR), a sort, and a − / + count per model. **Copies and temperature:** add the same
+model as often as you like (the ⧉ button on a row adds one); copies are labeled `gemma3:1b #2`,
+`#3` and share one loaded copy in memory. Each row has its own temperature slider from 0 (the same
+answer every time) to 2, so a careful copy at 0 can debate a loose one at 1.2. **Default** uses
+the temperature the model ships with, marked with a tick on the slider, and **Set all to 0** makes
+the whole run repeatable. Every run records the temperatures it used.
 
 ## Run
 
@@ -99,15 +103,14 @@ python3 server.py
 
 Every run, from the page or the command line, is saved as one JSON file in `runs/` (git-ignored):
 the prompt, rule, mode, chain, every message each model sent, timings, and the final answer.
-The page's **Saved runs** list opens any of them again. Add `--no-save` to skip saving.
+The page's **Previous runs** list opens any of them again. Add `--no-save` to skip saving.
 
 Every finished run also has **Open report** (a readable, standalone page with photos embedded; use
 Print → Save as PDF for a PDF) and **Download Markdown** (the same report as plain text, for GitHub
 or notes). Each mode gets its own layout. From the command line:
 `python3 report.py runs/<file>.json` writes both into `runs/reports/`.
 
-**Save run**, next to Run, saves just the run on screen (one you ran or reopened) wherever you
-choose: end the name in `.md` for Markdown or `.html` for a web page. Chrome, Edge and Arc show
+**Save**, next to each previous run, saves that run wherever you choose: end the name in `.md` for Markdown or `.html` for a web page. Chrome, Edge and Arc show
 their own Save dialog; in Safari the server opens the Mac's Save dialog instead.
 
 ## Harness
